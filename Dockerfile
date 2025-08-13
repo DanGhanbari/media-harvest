@@ -1,25 +1,21 @@
-# Use Node.js 18 as base image
-FROM node:18-slim
+# Use Node.js 18 Alpine for smaller size and faster builds
+FROM node:18-alpine
 
-# Install Python, pip, and system dependencies
-RUN apt-get update && apt-get install -y \
+# Install Python, pip, ffmpeg and build dependencies
+RUN apk add --no-cache \
     python3 \
-    python3-pip \
-    python3-venv \
+    py3-pip \
     ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install yt-dlp
-RUN pip3 install --no-cache-dir yt-dlp
+    && pip3 install --no-cache-dir yt-dlp
 
 # Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package files first for better caching
 COPY package*.json ./
 
-# Install Node.js dependencies
-RUN npm install --no-frozen-lockfile
+# Install Node.js dependencies (including dev dependencies for build)
+RUN npm ci
 
 # Copy source code
 COPY . .
