@@ -13,7 +13,8 @@ const getApiBaseUrl = (): string => {
   
   // Return the appropriate URL
   if (envApiUrl) {
-    return envApiUrl;
+    // Remove trailing slash to prevent double slashes
+    return envApiUrl.replace(/\/$/, '');
   }
   
   // Fallback to localhost in development, or current origin in production
