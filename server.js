@@ -232,7 +232,8 @@ app.post('/api/download-video', async (req, res) => {
       '--output', outputTemplate,
       '--no-playlist',
       '--restrict-filenames', // Use safe filenames
-      '--embed-metadata'
+      '--embed-metadata',
+      '--verbose'
     ];
 
     // Platform-specific configurations
