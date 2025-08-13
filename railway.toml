@@ -1,6 +1,6 @@
 [build]
 # Build command for Railway deployment
-command = "npm install --no-frozen-lockfile && npm run build"
+command = "node --version && npm --version && npm install --no-frozen-lockfile && npm run build"
 
 [deploy]
 # Start command for Railway deployment
