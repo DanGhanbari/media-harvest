@@ -55,8 +55,17 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
   const handleDownload = async (item: MediaItem) => {
     const itemId = item.url;
     
-    if (downloadingItems.has(itemId) || downloadedItems.has(itemId)) {
+    if (downloadingItems.has(itemId)) {
       return;
+    }
+    
+    // Remove from downloaded items to allow re-downloading with different quality
+    if (downloadedItems.has(itemId)) {
+      setDownloadedItems(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(itemId);
+        return newSet;
+      });
     }
 
     setDownloadingItems(prev => new Set(prev).add(itemId));
