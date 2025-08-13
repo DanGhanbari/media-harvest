@@ -291,7 +291,7 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
                 <div className="flex gap-3 pt-2">
                   <Button
                     onClick={() => handleDownload(item)}
-                    disabled={isDownloading || isDownloaded}
+                    disabled={isDownloading}
                     variant={isDownloaded ? "secondary" : "default"}
                     size="sm"
                     className={`${isDownloading ? 'flex-1' : 'flex-1'} transition-all duration-300 hover:scale-105 shadow-md hover:shadow-lg font-semibold`}
