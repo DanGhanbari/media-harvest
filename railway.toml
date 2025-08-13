@@ -1,7 +1,7 @@
 [build]
-# Build command for Railway deployment
-# Install Python, pip, and yt-dlp, then build the Node.js app
-command = "apt-get update && apt-get install -y python3 python3-pip && pip3 install yt-dlp && node --version && npm --version && npm install --no-frozen-lockfile && npm run build"
+# Use Dockerfile for Railway deployment
+# This ensures Python, pip, and yt-dlp are properly installed
+dockerfilePath = "Dockerfile"
 
 [deploy]
 # Start command for Railway deployment
