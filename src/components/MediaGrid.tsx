@@ -268,6 +268,14 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
                       value={selectedQuality[item.url] || 'high'}
                       onValueChange={(value) => {
                         setSelectedQuality(prev => ({ ...prev, [item.url]: value }));
+                        // Reset downloaded state when quality changes to show original button UI
+                        if (downloadedItems.has(item.url)) {
+                          setDownloadedItems(prev => {
+                            const newSet = new Set(prev);
+                            newSet.delete(item.url);
+                            return newSet;
+                          });
+                        }
                       }}
                     >
                       <SelectTrigger className="w-full bg-background/50 border-border/50 hover:border-primary/50 transition-colors duration-200">
