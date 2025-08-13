@@ -2,6 +2,8 @@
 # Use Dockerfile for Railway deployment
 # This ensures Python, pip, and yt-dlp are properly installed
 dockerfilePath = "Dockerfile"
+# Increase build timeout for Docker builds with Python dependencies
+buildTimeout = 900  # 15 minutes
 
 [deploy]
 # Start command for Railway deployment
