@@ -278,11 +278,15 @@ app.post('/api/download-video', async (req, res) => {
       
       // Try to use cookies from browser if available (helps with authentication)
       try {
-        ytDlpArgs.push('--cookies-from-browser', 'chrome');
+        ytDlpArgs.push('--cookies-from-browser', 'chrome:Default');
       } catch (e) {
         console.log('Could not extract cookies from browser, continuing without authentication');
       }
       
+      // If explicit cookies file is provided, prefer it over browser cookies
+      if (process.env.IG_COOKIES_FILE) {
+        ytDlpArgs.push('--cookies', process.env.IG_COOKIES_FILE);
+      }
     } else if (platform === 'facebook') {
       // Facebook-specific arguments  
       var ytDlpArgs = [
@@ -300,7 +304,7 @@ app.post('/api/download-video', async (req, res) => {
       
       // Try to use cookies from browser if available
       try {
-        ytDlpArgs.push('--cookies-from-browser', 'chrome');
+        ytDlpArgs.push('--cookies-from-browser', 'chrome:Default');
       } catch (e) {
         console.log('Could not extract cookies from browser, continuing without authentication');
       }
