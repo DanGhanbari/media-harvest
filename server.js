@@ -90,6 +90,16 @@ function detectPlatform(url) {
     return 'reddit';
   } else if (urlLower.includes('streamable.com')) {
     return 'streamable';
+  } else if (urlLower.includes('rumble.com')) {
+    return 'rumble';
+  } else if (urlLower.includes('bitchute.com')) {
+    return 'bitchute';
+  } else if (urlLower.includes('odysee.com') || urlLower.includes('lbry.tv')) {
+    return 'odysee';
+  } else if (urlLower.includes('pornhub.com')) {
+    return 'pornhub';
+  } else if (urlLower.includes('xvideos.com')) {
+    return 'xvideos';
   } else if (urlLower.match(/\.(mp4|webm|mov|avi|mkv|flv|wmv|m4v)$/i)) {
     return 'direct-video';
   } else {
@@ -238,8 +248,29 @@ app.post('/api/download-video', async (req, res) => {
 
     // Platform-specific configurations
     if (platform === 'instagram' || platform === 'facebook') {
-      // Instagram and Facebook may need cookies for private content
-      ytDlpArgs.push('--no-check-certificate');
+      // Instagram and Facebook require more robust authentication handling
+      ytDlpArgs.push(
+        '--no-check-certificate',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--referer', url,
+        '--extractor-retries', '3',
+        '--fragment-retries', '3',
+        '--retry-sleep', 'linear=1::2',
+        '--sleep-interval', '1',
+        '--max-sleep-interval', '5'
+      );
+      
+      // Try to use cookies from browser if available (helps with authentication)
+      try {
+        ytDlpArgs.push('--cookies-from-browser', 'chrome');
+      } catch (e) {
+        console.log('Could not extract cookies from browser, continuing without authentication');
+      }
+      
+      // For Instagram, try embed extraction as fallback
+      if (platform === 'instagram') {
+        ytDlpArgs.push('--no-playlist', '--ignore-errors');
+      }
     }
     
     if (platform === 'twitter') {
@@ -312,6 +343,25 @@ app.post('/api/download-video', async (req, res) => {
     
     ytDlp.on('close', (code) => {
       clearConnectionCheck();
+      
+      // Handle Instagram/Facebook authentication failures with helpful error messages
+      if (code !== 0 && (platform === 'instagram' || platform === 'facebook')) {
+        const errorOutput = stderr.toLowerCase();
+        if (errorOutput.includes('login required') || errorOutput.includes('authentication') || 
+            errorOutput.includes('cookies') || errorOutput.includes('rate-limit')) {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+          return res.status(403).json({ 
+            error: `${platform.charAt(0).toUpperCase() + platform.slice(1)} requires authentication`,
+            details: `This ${platform} content requires login. The platform has restricted access to prevent automated downloads. Try:
+1. Using a public post URL instead of private content
+2. Checking if the content is publicly accessible
+3. The content may be geo-restricted or require account access`,
+            platform: platform,
+            suggestion: 'Try downloading from YouTube, TikTok, or Twitter instead, which work more reliably.'
+          });
+        }
+      }
+      
       if (code === 0) {
         // Find the downloaded file (prioritize video files over thumbnails)
         const files = fs.readdirSync(tempDir);

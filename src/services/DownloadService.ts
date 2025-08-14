@@ -155,7 +155,17 @@ export class DownloadService {
       'instagram.com',
       'facebook.com', 'fb.watch',
       'twitter.com', 'x.com',
-      'tiktok.com'
+      'tiktok.com',
+      'vimeo.com',
+      'dailymotion.com',
+      'twitch.tv',
+      'reddit.com',
+      'streamable.com',
+      'rumble.com',
+      'bitchute.com',
+      'odysee.com', 'lbry.tv',
+      'pornhub.com',
+      'xvideos.com'
     ];
     
     return supportedPlatforms.some(platform => url.toLowerCase().includes(platform));
@@ -174,6 +184,26 @@ export class DownloadService {
       return 'Twitter/X';
     } else if (urlLower.includes('tiktok.com')) {
       return 'TikTok';
+    } else if (urlLower.includes('vimeo.com')) {
+      return 'Vimeo';
+    } else if (urlLower.includes('dailymotion.com')) {
+      return 'Dailymotion';
+    } else if (urlLower.includes('twitch.tv')) {
+      return 'Twitch';
+    } else if (urlLower.includes('reddit.com')) {
+      return 'Reddit';
+    } else if (urlLower.includes('streamable.com')) {
+      return 'Streamable';
+    } else if (urlLower.includes('rumble.com')) {
+      return 'Rumble';
+    } else if (urlLower.includes('bitchute.com')) {
+      return 'BitChute';
+    } else if (urlLower.includes('odysee.com') || urlLower.includes('lbry.tv')) {
+      return 'Odysee';
+    } else if (urlLower.includes('pornhub.com')) {
+      return 'Pornhub';
+    } else if (urlLower.includes('xvideos.com')) {
+      return 'XVideos';
     } else {
       return 'Unknown Platform';
     }
@@ -198,6 +228,12 @@ export class DownloadService {
         
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+          
+          // Handle authentication errors for Instagram/Facebook with helpful messages
+          if (response.status === 403 && errorData.platform && (errorData.platform === 'instagram' || errorData.platform === 'facebook')) {
+            throw new Error(`${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`);
+          }
+          
           throw new Error(`Backend download failed: ${errorData.error || response.statusText}`);
         }
         
