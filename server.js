@@ -274,9 +274,13 @@ app.post('/api/download-video', async (req, res) => {
         // Add specific Instagram options for carousel handling
         ytDlpArgs.push(
           '--ignore-errors', // Continue on errors for individual items
-          '--write-info-json', // Get metadata for each item
-          '--extract-flat' // Extract all items in carousel
+          '--write-info-json' // Get metadata for each item
         );
+        // Remove --no-playlist flag that was added earlier to allow carousel downloads
+        const noPlaylistIndex = ytDlpArgs.indexOf('--no-playlist');
+        if (noPlaylistIndex > -1) {
+          ytDlpArgs.splice(noPlaylistIndex, 1);
+        }
       }
     }
     
