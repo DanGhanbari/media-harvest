@@ -6,6 +6,7 @@ import os from 'os';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import archiver from 'archiver';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -267,9 +268,15 @@ app.post('/api/download-video', async (req, res) => {
         console.log('Could not extract cookies from browser, continuing without authentication');
       }
       
-      // For Instagram, try embed extraction as fallback
+      // For Instagram, handle carousel posts (multiple images/videos)
       if (platform === 'instagram') {
-        ytDlpArgs.push('--no-playlist', '--ignore-errors');
+        // Remove --no-playlist to allow downloading all items in carousel
+        // Add specific Instagram options for carousel handling
+        ytDlpArgs.push(
+          '--ignore-errors', // Continue on errors for individual items
+          '--write-info-json', // Get metadata for each item
+          '--extract-flat' // Extract all items in carousel
+        );
       }
     }
     
@@ -363,45 +370,104 @@ app.post('/api/download-video', async (req, res) => {
       }
       
       if (code === 0) {
-        // Find the downloaded file (prioritize video files over thumbnails)
-        const files = fs.readdirSync(tempDir);
+        // Find the downloaded files (handle carousel posts with multiple files)
+        const files = fs.readdirSync(tempDir).filter(file => 
+          // Filter out info.json files and thumbnails, keep media files
+          !/\.(info\.json|description|annotations\.xml)$/i.test(file) &&
+          !/thumbnail/i.test(file)
+        );
+        
         if (files.length > 0) {
-          // Look for video files first (mp4, mkv, webm, etc.), then audio files, then others
-          const videoFile = files.find(file => /\.(mp4|mkv|webm|avi|mov|flv|m4v)$/i.test(file)) ||
-                           files.find(file => /\.(m4a|mp3|aac|ogg|wav|flac)$/i.test(file)) ||
-                           files[0];
-          const downloadedFile = path.join(tempDir, videoFile);
-          const stats = fs.statSync(downloadedFile);
-          
-          // Send file as download
-          const finalFilename = filename || videoFile;
-          res.setHeader('Content-Disposition', `attachment; filename="${finalFilename}"`);
-          res.setHeader('Content-Type', 'application/octet-stream');
-          res.setHeader('Content-Length', stats.size);
-          
-          const fileStream = fs.createReadStream(downloadedFile);
-          
-          // Handle client disconnect during file streaming
-          res.on('close', () => {
-            console.log('Client disconnected during file transfer');
-            fileStream.destroy();
-            fs.rmSync(tempDir, { recursive: true, force: true });
+          // Sort files to prioritize videos over images
+          const sortedFiles = files.sort((a, b) => {
+            const aIsVideo = /\.(mp4|mkv|webm|avi|mov|flv|m4v)$/i.test(a);
+            const bIsVideo = /\.(mp4|mkv|webm|avi|mov|flv|m4v)$/i.test(b);
+            if (aIsVideo && !bIsVideo) return -1;
+            if (!aIsVideo && bIsVideo) return 1;
+            return a.localeCompare(b);
           });
           
-          fileStream.pipe(res);
-          
-          // Clean up after sending
-          fileStream.on('end', () => {
-            fs.rmSync(tempDir, { recursive: true, force: true });
-          });
-          
-          fileStream.on('error', (error) => {
-            console.error('File stream error:', error);
-            fs.rmSync(tempDir, { recursive: true, force: true });
-            if (!res.headersSent) {
-              res.status(500).json({ error: 'Failed to send file' });
-            }
-          });
+          // If multiple files (carousel post), create a zip archive
+          if (sortedFiles.length > 1 && platform === 'instagram') {
+            console.log(`Creating zip archive for ${sortedFiles.length} carousel items`);
+            
+            const zipFilename = `${filename || 'instagram_carousel'}.zip`;
+            res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
+            res.setHeader('Content-Type', 'application/zip');
+            
+            const archive = archiver('zip', { zlib: { level: 9 } });
+            
+            // Handle client disconnect
+            res.on('close', () => {
+              console.log('Client disconnected during zip transfer');
+              archive.destroy();
+              fs.rmSync(tempDir, { recursive: true, force: true });
+            });
+            
+            // Handle archive errors
+            archive.on('error', (err) => {
+              console.error('Archive error:', err);
+              res.status(500).json({ error: 'Failed to create archive' });
+              fs.rmSync(tempDir, { recursive: true, force: true });
+            });
+            
+            // Pipe archive to response
+            archive.pipe(res);
+            
+            // Add files to archive
+            sortedFiles.forEach((file, index) => {
+              const filePath = path.join(tempDir, file);
+              const ext = path.extname(file);
+              const baseName = path.basename(file, ext);
+              // Create meaningful names for carousel items
+              const archiveName = `carousel_item_${index + 1}_${baseName}${ext}`;
+              archive.file(filePath, { name: archiveName });
+            });
+            
+            // Finalize archive
+            archive.finalize();
+            
+            // Clean up after sending
+            archive.on('end', () => {
+              console.log('Zip archive sent successfully');
+              fs.rmSync(tempDir, { recursive: true, force: true });
+            });
+            
+          } else {
+            // Single file - send as normal
+            const downloadedFile = path.join(tempDir, sortedFiles[0]);
+            const stats = fs.statSync(downloadedFile);
+            
+            // Send file as download
+            const finalFilename = filename || sortedFiles[0];
+            res.setHeader('Content-Disposition', `attachment; filename="${finalFilename}"`);
+            res.setHeader('Content-Type', 'application/octet-stream');
+            res.setHeader('Content-Length', stats.size);
+            
+            const fileStream = fs.createReadStream(downloadedFile);
+            
+            // Handle client disconnect during file streaming
+            res.on('close', () => {
+              console.log('Client disconnected during file transfer');
+              fileStream.destroy();
+              fs.rmSync(tempDir, { recursive: true, force: true });
+            });
+            
+            fileStream.pipe(res);
+            
+            // Clean up after sending
+             fileStream.on('end', () => {
+               fs.rmSync(tempDir, { recursive: true, force: true });
+             });
+            
+             fileStream.on('error', (error) => {
+               console.error('File stream error:', error);
+               fs.rmSync(tempDir, { recursive: true, force: true });
+               if (!res.headersSent) {
+                 res.status(500).json({ error: 'Failed to send file' });
+               }
+             });
+           }
         } else {
           fs.rmSync(tempDir, { recursive: true, force: true });
           res.status(500).json({ error: 'No file was downloaded' });
