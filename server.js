@@ -273,7 +273,7 @@ app.post('/api/download-video', async (req, res) => {
         // Remove --no-playlist to allow downloading all items in carousel
         // Add specific Instagram options for carousel handling
         ytDlpArgs.push(
-          '--ignore-errors', // Continue on errors for individual items
+          '--ignore-errors', // Continue on errors for individual items (like images)
           '--write-info-json' // Get metadata for each item
         );
         // Remove --no-playlist flag that was added earlier to allow carousel downloads
