@@ -213,34 +213,58 @@ export class DownloadService {
     const downloadServices = [
       // Service 1: Try local yt-dlp backend (most reliable)
       async () => {
-        const response = await fetch(API_ENDPOINTS.DOWNLOAD_VIDEO, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            url: item.url,
-            filename: item.filename,
-            quality: quality
-          }),
-          signal
-        });
+        // Create a timeout controller for large file downloads (5 minutes)
+        const timeoutController = new AbortController();
+        const timeoutId = setTimeout(() => timeoutController.abort(), 300000);
         
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        // Combine the existing signal with timeout signal
+         let combinedSignal = timeoutController.signal;
+         if (signal) {
+           // If AbortSignal.any is available (newer browsers), use it
+           if (typeof AbortSignal.any === 'function') {
+             combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
+           } else {
+             // Fallback: listen to the original signal and abort timeout controller
+             signal.addEventListener('abort', () => timeoutController.abort());
+             combinedSignal = timeoutController.signal;
+           }
+         }
+        
+        try {
+          const response = await fetch(API_ENDPOINTS.DOWNLOAD_VIDEO, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              url: item.url,
+              filename: item.filename,
+              quality: quality
+            }),
+            signal: combinedSignal
+          });
           
-          // Handle authentication errors for Instagram/Facebook with helpful messages
-          if (response.status === 403 && errorData.platform && (errorData.platform === 'instagram' || errorData.platform === 'facebook')) {
-            throw new Error(`${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`);
+          clearTimeout(timeoutId);
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+            
+            // Handle authentication errors for Instagram/Facebook with helpful messages
+            if (response.status === 403 && errorData.platform && (errorData.platform === 'instagram' || errorData.platform === 'facebook')) {
+              throw new Error(`${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`);
+            }
+            
+            throw new Error(`Backend download failed: ${errorData.error || response.statusText}`);
           }
           
-          throw new Error(`Backend download failed: ${errorData.error || response.statusText}`);
-        }
-        
-        // Get the file as a blob and save it
-        const blob = await response.blob();
-        saveAs(blob, item.filename);
-        return;
+          // Get the file as a blob and save it
+          const blob = await response.blob();
+          saveAs(blob, item.filename);
+          return;
+        } catch (error) {
+           clearTimeout(timeoutId);
+           throw error;
+         }
       }
       // Note: Fallback services removed as they only support YouTube
       // For multi-platform support, we rely on the yt-dlp backend

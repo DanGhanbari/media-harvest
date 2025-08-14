@@ -105,10 +105,14 @@ export class MediaDetectionService {
   private static handleInstagramUrl(url: string): MediaItem[] {
     const filename = this.extractFilename(url);
     
+    // For Instagram posts, show a single item that represents the entire post
+    // The backend will automatically detect and download all carousel items
+    // and package them in a zip file if there are multiple items
     return [{
       url: url,
       type: 'video' as const,
-      filename: `${filename}.mp4`
+      filename: url.includes('/p/') ? `${filename}_carousel.zip` : `${filename}.mp4`,
+      size: url.includes('/p/') ? 'Multiple items (auto-detected)' : undefined
     }];
   }
   

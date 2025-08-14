@@ -27,7 +27,8 @@ const corsOptions = {
           'http://localhost:3000',
           'http://localhost:5173', // Vite dev server
           'http://127.0.0.1:3000',
-          'http://127.0.0.1:5173'
+          'http://127.0.0.1:5173',
+          'http://localhost:3002'
         ];
     
     // In development, allow all origins
@@ -51,6 +52,14 @@ const corsOptions = {
 
 // Middleware
 app.use(cors(corsOptions));
+
+// Serve static files from the React build directory
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// All other GET requests not handled by the API should return the React app
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('dist')); // Serve built frontend
 
@@ -231,26 +240,27 @@ app.post('/api/download-video', async (req, res) => {
   try {
     // Create a temporary directory for downloads
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ytdl-'));
-    const outputTemplate = path.join(tempDir, '%(title)s.%(ext)s');
+    const outputTemplate = path.join(tempDir, '%(title)s_%(id)s_%(playlist_index)s.%(ext)s');
     
     // Detect platform and adjust settings accordingly
     const platform = detectPlatform(url);
     console.log(`Downloading from ${platform}: ${url} with quality: ${quality}`);
     console.log('About to spawn yt-dlp process...');
     
-    const ytDlpArgs = [
+    // Base arguments for all platforms
+    const baseArgs = [
       '--format', qualityFormats[quality],
       '--output', outputTemplate,
-      '--no-playlist',
       '--restrict-filenames', // Use safe filenames
       '--embed-metadata',
       '--verbose'
     ];
 
     // Platform-specific configurations
-    if (platform === 'instagram' || platform === 'facebook') {
-      // Instagram and Facebook require more robust authentication handling
-      ytDlpArgs.push(
+    if (platform === 'instagram') {
+      // Instagram-specific arguments for carousel handling
+      var ytDlpArgs = [
+        ...baseArgs,
         '--no-check-certificate',
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         '--referer', url,
@@ -258,8 +268,13 @@ app.post('/api/download-video', async (req, res) => {
         '--fragment-retries', '3',
         '--retry-sleep', 'linear=1::2',
         '--sleep-interval', '1',
-        '--max-sleep-interval', '5'
-      );
+        '--max-sleep-interval', '5',
+        '--ignore-errors', // Continue on errors for individual items
+        '--write-info-json', // Get metadata for each item
+        '--write-thumbnail', // Download thumbnails
+        // DO NOT add --no-playlist for Instagram to allow carousel downloads
+        '--yes-playlist' // Explicitly enable playlist/carousel extraction
+      ];
       
       // Try to use cookies from browser if available (helps with authentication)
       try {
@@ -268,20 +283,33 @@ app.post('/api/download-video', async (req, res) => {
         console.log('Could not extract cookies from browser, continuing without authentication');
       }
       
-      // For Instagram, handle carousel posts (multiple images/videos)
-      if (platform === 'instagram') {
-        // Remove --no-playlist to allow downloading all items in carousel
-        // Add specific Instagram options for carousel handling
-        ytDlpArgs.push(
-          '--ignore-errors', // Continue on errors for individual items (like images)
-          '--write-info-json' // Get metadata for each item
-        );
-        // Remove --no-playlist flag that was added earlier to allow carousel downloads
-        const noPlaylistIndex = ytDlpArgs.indexOf('--no-playlist');
-        if (noPlaylistIndex > -1) {
-          ytDlpArgs.splice(noPlaylistIndex, 1);
-        }
+    } else if (platform === 'facebook') {
+      // Facebook-specific arguments  
+      var ytDlpArgs = [
+        ...baseArgs,
+        '--no-playlist', // For Facebook, use no-playlist
+        '--no-check-certificate',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--referer', url,
+        '--extractor-retries', '3',
+        '--fragment-retries', '3',
+        '--retry-sleep', 'linear=1::2',
+        '--sleep-interval', '1',
+        '--max-sleep-interval', '5'
+      ];
+      
+      // Try to use cookies from browser if available
+      try {
+        ytDlpArgs.push('--cookies-from-browser', 'chrome');
+      } catch (e) {
+        console.log('Could not extract cookies from browser, continuing without authentication');
       }
+    } else {
+      // Default arguments for other platforms
+      var ytDlpArgs = [
+        ...baseArgs,
+        '--no-playlist' // Default behavior for non-Instagram platforms
+      ];
     }
     
     if (platform === 'twitter') {
