@@ -267,8 +267,8 @@ app.post('/api/download-video', async (req, res) => {
         ytDlpArgs.push('--cookies', process.env.IG_COOKIES_FILE);
         cookiesAdded = true;
       }
-      // Then try browser cookies automatically
-      else {
+      // Then try browser cookies automatically (only works in development)
+      else if (process.env.NODE_ENV !== 'production') {
         for (const browser of browsers) {
           try {
             ytDlpArgs.push('--cookies-from-browser', `${browser}:Default`);
@@ -381,13 +381,27 @@ app.post('/api/download-video', async (req, res) => {
         if (errorOutput.includes('login required') || errorOutput.includes('authentication') || 
             errorOutput.includes('cookies') || errorOutput.includes('rate-limit')) {
           fs.rmSync(tempDir, { recursive: true, force: true });
-          return res.status(403).json({ 
-            error: `${platform.charAt(0).toUpperCase() + platform.slice(1)} requires authentication`,
-            details: `This ${platform} content requires login. The platform has restricted access to prevent automated downloads. Try:
+          
+          const isProduction = process.env.NODE_ENV === 'production';
+          const errorMessage = isProduction 
+            ? `${platform.charAt(0).toUpperCase() + platform.slice(1)} authentication not available in production`
+            : `${platform.charAt(0).toUpperCase() + platform.slice(1)} requires authentication`;
+          
+          const details = isProduction
+            ? `Instagram downloads require browser cookies which are not available on the production server. This is a limitation of the hosting environment. Try:
+1. Using a public Instagram post URL (some may work without authentication)
+2. Running the application locally for Instagram downloads
+3. Using alternative platforms like YouTube, TikTok, or Twitter`
+            : `This ${platform} content requires login. The platform has restricted access to prevent automated downloads. Try:
 1. Using a public post URL instead of private content
 2. Checking if the content is publicly accessible
-3. The content may be geo-restricted or require account access`,
+3. The content may be geo-restricted or require account access`;
+          
+          return res.status(403).json({ 
+            error: errorMessage,
+            details: details,
             platform: platform,
+            isProduction: isProduction,
             suggestion: 'Try downloading from YouTube, TikTok, or Twitter instead, which work more reliably.'
           });
         }

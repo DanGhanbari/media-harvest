@@ -257,7 +257,10 @@ export class DownloadService {
             
             // Handle authentication errors for Instagram/Facebook with helpful messages
             if (response.status === 403 && errorData.platform && (errorData.platform === 'instagram' || errorData.platform === 'facebook')) {
-              throw new Error(`${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`);
+              const errorMessage = errorData.isProduction 
+                ? `🚫 ${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`
+                : `${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`;
+              throw new Error(errorMessage);
             }
             
             throw new Error(`Backend download failed: ${errorData.error || response.statusText}`);
