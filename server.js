@@ -817,13 +817,21 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
         await new Promise((resolve, reject) => {
           downloadProcess.on('close', (code) => {
             if (code === 0 && fs.existsSync(downloadPath)) {
+              const stats = fs.statSync(downloadPath);
+              console.log(`[CONVERT] Successfully downloaded: ${filename}, size: ${stats.size} bytes`);
+              
+              if (stats.size === 0) {
+                console.error(`[CONVERT] Downloaded file is empty`);
+                reject(new Error(`Downloaded file is empty`));
+                return;
+              }
+              
               inputPath = downloadPath;
               originalFilename = path.parse(filename).name;
-              console.log(`[CONVERT] Successfully downloaded: ${filename}`);
               resolve();
             } else {
-              console.error(`[CONVERT] Curl download failed:`, downloadOutput);
-              reject(new Error(`Failed to download file from URL: ${downloadOutput}`));
+              console.error(`[CONVERT] Curl download failed with code ${code}:`, downloadOutput);
+              reject(new Error(`Failed to download file from URL (code ${code}): ${downloadOutput}`));
             }
           });
         });
