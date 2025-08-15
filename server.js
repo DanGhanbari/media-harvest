@@ -66,8 +66,10 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     // Accept video files including MXF
+    // Also accept files without extensions if they have video mimetype
     if (file.mimetype.startsWith('video/') || 
-        file.originalname.match(/\.(mp4|webm|avi|mov|mkv|flv|wmv|m4v|mxf)$/i)) {
+        file.originalname.match(/\.(mp4|webm|avi|mov|mkv|flv|wmv|m4v|mxf)$/i) ||
+        (file.mimetype === 'application/octet-stream' && !path.extname(file.originalname))) {
       cb(null, true);
     } else {
       cb(new Error('Only video files are allowed'));
@@ -734,11 +736,17 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'video-convert-'));
   
   try {
-    const { url, format = 'mp4', quality = 'medium', leftChannel, rightChannel } = req.body;
+    const { format = 'mp4', quality = 'medium', leftChannel, rightChannel, resolution } = req.body;
+    
+    // Validate that a file was uploaded
+    if (!req.file) {
+      return res.status(400).json({ error: 'No video file provided. Please upload a video file.' });
+    }
     
     // Input validation
     const validFormats = ['mp4', 'avi', 'mov', 'mkv', 'webm', 'mp3', 'wav'];
-    const validQualities = ['low', 'medium', 'high'];
+    const validQualities = ['low', 'medium', 'high', 'maximum'];
+    const validResolutions = ['original', '1920x1080', '1280x720', '854x480'];
     
     if (!validFormats.includes(format)) {
       return res.status(400).json({ 
@@ -753,6 +761,13 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
         details: `Supported qualities: ${validQualities.join(', ')}` 
       });
     }
+
+    if (resolution && !validResolutions.includes(resolution)) {
+      return res.status(400).json({ 
+        error: 'Invalid resolution', 
+        details: `Supported resolutions: ${validResolutions.join(', ')}` 
+      });
+    }
     
     // Validate channel parameters if provided
     if ((leftChannel !== undefined || rightChannel !== undefined) && 
@@ -763,9 +778,11 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
       });
     }
     
+    // Parse channel parameters
+    let leftCh, rightCh;
     if (leftChannel !== undefined && rightChannel !== undefined) {
-      const leftCh = parseInt(leftChannel);
-      const rightCh = parseInt(rightChannel);
+      leftCh = parseInt(leftChannel);
+      rightCh = parseInt(rightChannel);
       
       if (isNaN(leftCh) || isNaN(rightCh) || leftCh < 0 || rightCh < 0) {
         return res.status(400).json({ 
@@ -775,147 +792,14 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
       }
     }
     
-    let inputPath;
-    let originalFilename = 'converted_video';
+    // Set up input file path and filename
+    const inputPath = req.file.path;
+    const originalFilename = path.parse(req.file.originalname).name;
     
     console.log(`[CONVERT] Starting conversion - Format: ${format}, Quality: ${quality}, Channels: ${leftChannel}-${rightChannel}`);
-    
-    // Handle file upload or URL input
-    if (req.file) {
-      inputPath = req.file.path;
-      originalFilename = path.parse(req.file.originalname).name;
-    } else if (url) {
-      console.log(`[CONVERT] Processing URL: ${url}`);
-      
-      // Check if it's a direct file URL or a platform URL
-      const isDirectFileUrl = /\.(mp4|avi|mov|mkv|webm|mxf|m4v|flv|wmv|3gp)$/i.test(url);
-      
-      if (isDirectFileUrl) {
-        console.log(`[CONVERT] Detected direct file URL, using curl for download`);
-        
-        // Extract filename from URL with error handling
-        let filename = 'downloaded_video';
-        try {
-          const urlPath = new URL(url).pathname;
-          filename = path.basename(urlPath) || 'downloaded_video';
-        } catch (urlError) {
-          console.warn(`[CONVERT] Failed to parse URL for filename extraction: ${urlError.message}`);
-          // Use a default filename if URL parsing fails
-          filename = 'downloaded_video';
-        }
-        const downloadPath = path.join(tempDir, filename);
-        
-        // Use curl to download the file with timeout and progress
-        const curlArgs = [
-          '-L', // Follow redirects
-          '--max-time', '300', // 5 minute timeout
-          '--connect-timeout', '30', // 30 second connection timeout
-          '--progress-bar', // Show progress
-          '-o', downloadPath, 
-          url
-        ];
-        const downloadProcess = spawn('curl', curlArgs);
-        
-        let downloadOutput = '';
-        let downloadProgress = '';
-        
-        downloadProcess.stdout.on('data', (data) => {
-          downloadProgress += data.toString();
-        });
-        
-        downloadProcess.stderr.on('data', (data) => {
-          downloadOutput += data.toString();
-        });
-        
-        // Set a timeout for the entire download process
-        const downloadTimeout = setTimeout(() => {
-          downloadProcess.kill('SIGTERM');
-        }, 300000); // 5 minutes
-        
-        await new Promise((resolve, reject) => {
-          downloadProcess.on('close', (code) => {
-            clearTimeout(downloadTimeout);
-            
-            if (code === 0 && fs.existsSync(downloadPath)) {
-              const stats = fs.statSync(downloadPath);
-              console.log(`[CONVERT] Successfully downloaded: ${filename}, size: ${stats.size} bytes`);
-              
-              if (stats.size === 0) {
-                console.error(`[CONVERT] Downloaded file is empty`);
-                reject(new Error(`Downloaded file is empty - check if URL is accessible`));
-                return;
-              }
-              
-              // Check if file size is reasonable (not truncated)
-              if (stats.size < 1000) {
-                console.error(`[CONVERT] Downloaded file suspiciously small: ${stats.size} bytes`);
-                reject(new Error(`Downloaded file too small (${stats.size} bytes) - likely incomplete download`));
-                return;
-              }
-              
-              inputPath = downloadPath;
-              originalFilename = path.parse(filename).name;
-              resolve();
-            } else {
-              console.error(`[CONVERT] Curl download failed with code ${code}:`, downloadOutput);
-              
-              let errorMessage = `Failed to download file from URL (code ${code})`;
-              if (code === 124 || downloadOutput.includes('timeout')) {
-                errorMessage = `Download timeout - file too large or connection too slow`;
-              } else if (code === 6) {
-                errorMessage = `Could not resolve host - check URL validity`;
-              } else if (code === 7) {
-                errorMessage = `Failed to connect to host`;
-              } else if (code === 22) {
-                errorMessage = `HTTP error - file not found or access denied`;
-              }
-              
-              reject(new Error(`${errorMessage}: ${downloadOutput}`));
-            }
-          });
-          
-          downloadProcess.on('error', (error) => {
-            clearTimeout(downloadTimeout);
-            reject(new Error(`Download process error: ${error.message}`));
-          });
-        });
-      } else {
-        console.log(`[CONVERT] Detected platform URL, using yt-dlp`);
-        
-        // Download video from platform URL using yt-dlp
-        const downloadPath = path.join(tempDir, 'input.%(ext)s');
-        
-        const ytDlpArgs = [
-          '--no-playlist',
-          '--extract-flat', 'false',
-          '-o', downloadPath,
-          url
-        ];
-        
-        const downloadProcess = spawn('yt-dlp', ytDlpArgs);
-        
-        await new Promise((resolve, reject) => {
-          downloadProcess.on('close', (code) => {
-            if (code === 0) {
-              // Find the downloaded file
-              const files = fs.readdirSync(tempDir).filter(f => f.startsWith('input.'));
-              if (files.length > 0) {
-                inputPath = path.join(tempDir, files[0]);
-                originalFilename = path.parse(files[0]).name;
-                console.log(`[CONVERT] Successfully downloaded via yt-dlp: ${files[0]}`);
-                resolve();
-              } else {
-                reject(new Error('No file downloaded'));
-              }
-            } else {
-              reject(new Error('Failed to download video'));
-            }
-          });
-        });
-      }
-    } else {
-      return res.status(400).json({ error: 'No video file or URL provided' });
-    }
+    console.log(`[CONVERT] Processing file: ${req.file.originalname} (${req.file.mimetype})`);
+    console.log(`[CONVERT] File size: ${req.file.size} bytes`);
+    console.log(`[CONVERT] Temp path: ${inputPath}`);
     
     // Set up output path
     const outputFilename = `${originalFilename}_converted.${format}`;
@@ -993,17 +877,37 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
           ffmpegArgs.push(
             '-filter_complex', 
             `amerge=inputs=${streamCount}[merged];[merged]channelmap=map=${leftCh}|${rightCh}:channel_layout=stereo[aout]`,
-            '-map', '0:v',
-            '-map', '[aout]'
+            '-map', '0:v:0',
+            '-map', '[aout]',
+            '-avoid_negative_ts', 'make_zero'
           );
         } else {
-          // For single stream with multiple channels, use direct channel mapping
-          ffmpegArgs.push(
-            '-filter_complex', 
-            `[0:a]channelmap=map=${leftCh}|${rightCh}:channel_layout=stereo[aout]`,
-            '-map', '0:v',
-            '-map', '[aout]'
-          );
+          // For single stream with multiple channels
+          const audioStream = audioStreams[0];
+          const channels = audioStream.channels || 1;
+          
+          if (channels === 2 && leftCh === 0 && rightCh === 1) {
+            // If it's already stereo and we want L=0, R=1, just copy the audio
+            ffmpegArgs.push('-map', '0:v:0', '-map', '0:a:0');
+          } else if (channels >= 2) {
+            // For stereo/multi-channel, use channel mapping
+            ffmpegArgs.push(
+              '-filter_complex', 
+              `[0:a]channelmap=map=${leftCh}|${rightCh}:channel_layout=stereo[aout]`,
+              '-map', '0:v:0',
+              '-map', '[aout]',
+              '-avoid_negative_ts', 'make_zero'
+            );
+          } else {
+            // For mono, duplicate the channel
+            ffmpegArgs.push(
+              '-filter_complex', 
+              `[0:a]channelmap=map=0|0:channel_layout=stereo[aout]`,
+              '-map', '0:v:0',
+              '-map', '[aout]',
+              '-avoid_negative_ts', 'make_zero'
+            );
+          }
         }
       } catch (channelError) {
         console.error('Audio channel mapping error:', channelError.message);
@@ -1011,31 +915,54 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
       }
     }
     
-    // Quality settings
-    switch (quality) {
-      case 'low':
-        ffmpegArgs.push('-crf', '28', '-preset', 'fast');
-        break;
-      case 'high':
-        ffmpegArgs.push('-crf', '18', '-preset', 'slow');
-        break;
-      default: // medium
-        ffmpegArgs.push('-crf', '23', '-preset', 'medium');
+    // Check if we should use stream copy for same format conversion
+    // Disable stream copy if resolution scaling is requested
+    const useStreamCopy = req.file.originalname.toLowerCase().endsWith('.mp4') && format === 'mp4' && quality === 'medium' && !leftCh && !rightCh && (!resolution || resolution === 'original');
+    
+    if (!leftCh && !rightCh && !useStreamCopy) {
+      // For basic conversion without channel mapping, explicitly map only main streams
+      // This excludes attached pictures and other metadata streams
+      ffmpegArgs.push('-map', '0:v:0', '-map', '0:a:0?');
+    }
+    
+    // Resolution scaling (skip for stream copy and audio-only formats)
+    if (!useStreamCopy && resolution && resolution !== 'original' && !['mp3', 'wav'].includes(format)) {
+      // Parse resolution string (e.g., "1280x720" -> width=1280, height=720)
+      const [width, height] = resolution.split('x').map(Number);
+      // Add scaling filter with proper width and height values
+      ffmpegArgs.push('-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`);
+    }
+
+    // Quality settings (skip for stream copy)
+    if (!useStreamCopy) {
+      switch (quality) {
+        case 'low':
+          ffmpegArgs.push('-crf', '28', '-preset', 'fast');
+          break;
+        case 'high':
+          ffmpegArgs.push('-crf', '18', '-preset', 'slow');
+          break;
+        case 'maximum':
+          ffmpegArgs.push('-crf', '15', '-preset', 'veryslow');
+          break;
+        default: // medium
+          ffmpegArgs.push('-crf', '23', '-preset', 'medium');
+      }
     }
     
     // Format-specific settings
     switch (format) {
       case 'webm':
-        ffmpegArgs.push('-c:v', 'libvpx-vp9', '-c:a', 'libopus');
+        ffmpegArgs.push('-c:v:0', 'libvpx-vp9', '-c:a:0', 'libopus');
         break;
       case 'avi':
-        ffmpegArgs.push('-c:v', 'libx264', '-c:a', 'aac');
+        ffmpegArgs.push('-c:v:0', 'libx264', '-c:a:0', 'aac', '-pix_fmt', 'yuv420p');
         break;
       case 'mov':
-        ffmpegArgs.push('-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart');
+        ffmpegArgs.push('-c:v:0', 'libx264', '-c:a:0', 'aac', '-pix_fmt', 'yuv420p', '-profile:v', 'baseline', '-movflags', '+faststart');
         break;
       case 'mkv':
-        ffmpegArgs.push('-c:v', 'libx264', '-c:a', 'aac');
+        ffmpegArgs.push('-c:v:0', 'libx264', '-c:a:0', 'aac', '-pix_fmt', 'yuv420p');
         break;
       case 'mp3':
         ffmpegArgs.push('-vn', '-c:a', 'libmp3lame', '-b:a', '192k');
@@ -1044,7 +971,14 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
         ffmpegArgs.push('-vn', '-c:a', 'pcm_s16le');
         break;
       default: // mp4
-        ffmpegArgs.push('-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart');
+        if (useStreamCopy) {
+          // Use stream copy for same format with default quality to avoid codec conflicts
+          // Don't use complex mapping with stream copy
+          ffmpegArgs.push('-c:v', 'copy', '-c:a', 'copy', '-avoid_negative_ts', 'make_zero', '-movflags', '+faststart');
+        } else {
+          // Re-encode with compatible settings for quality changes or different input formats
+          ffmpegArgs.push('-c:v:0', 'libx264', '-c:a:0', 'aac', '-pix_fmt', 'yuv420p', '-profile:v', 'baseline', '-movflags', '+faststart');
+        }
     }
     
     ffmpegArgs.push('-y', outputPath);
