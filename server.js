@@ -158,6 +158,16 @@ const qualityFormats = {
 // Get available quality options endpoint
 // Removed manual cookie upload endpoint - using automated extraction instead
 
+// Test endpoint to verify deployment version
+app.get('/api/version', (req, res) => {
+  res.json({
+    version: '2.0.0',
+    timestamp: new Date().toISOString(),
+    hasConvertEndpoint: true,
+    deploymentId: process.env.RAILWAY_DEPLOYMENT_ID || 'local'
+  });
+});
+
 app.get('/api/quality-options', (req, res) => {
   res.json({
     options: [
