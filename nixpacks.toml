@@ -1,8 +1,9 @@
+# Railway nixpacks configuration for FFmpeg support
 [phases.setup]
 nixPkgs = ['nodejs_18', 'ffmpeg', 'curl', 'python3']
 
 [phases.build]
-cmds = ['npm ci']
+cmds = ['npm ci', 'npm run build']
 
-[start]
+[phases.start]
 cmd = 'node server.js'
