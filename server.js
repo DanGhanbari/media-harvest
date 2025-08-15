@@ -70,6 +70,15 @@ function checkYtDlp() {
   });
 }
 
+// Function to detect production environment
+function isProductionEnvironment() {
+  return process.env.NODE_ENV === 'production' || 
+         process.env.RAILWAY_ENVIRONMENT === 'production' ||
+         process.env.RAILWAY_PROJECT_ID || 
+         process.env.PORT === '3000' || // Railway default port
+         process.env.HOSTNAME?.includes('railway.app');
+}
+
 // Detect platform from URL
 function detectPlatform(url) {
   const urlLower = url.toLowerCase();
@@ -268,7 +277,7 @@ app.post('/api/download-video', async (req, res) => {
         cookiesAdded = true;
       }
       // Then try browser cookies automatically (only works in development)
-      else if (process.env.NODE_ENV !== 'production') {
+      else if (!isProductionEnvironment()) {
         for (const browser of browsers) {
           try {
             ytDlpArgs.push('--cookies-from-browser', `${browser}:Default`);
@@ -382,7 +391,7 @@ app.post('/api/download-video', async (req, res) => {
             errorOutput.includes('cookies') || errorOutput.includes('rate-limit')) {
           fs.rmSync(tempDir, { recursive: true, force: true });
           
-          const isProduction = process.env.NODE_ENV === 'production';
+          const isProduction = isProductionEnvironment();
           const errorMessage = isProduction 
             ? `${platform.charAt(0).toUpperCase() + platform.slice(1)} authentication not available in production`
             : `${platform.charAt(0).toUpperCase() + platform.slice(1)} requires authentication`;
