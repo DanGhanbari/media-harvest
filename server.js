@@ -7,7 +7,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import archiver from 'archiver';
-import multer from 'multer';
+// Removed multer import - no longer needed for manual cookie uploads
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -56,25 +56,6 @@ app.use(cors(corsOptions));
 app.use(express.static(path.join(__dirname, 'dist')));
 
 app.use(express.json({ limit: '10mb' }));
-
-// Configure multer for cookie file uploads
-const upload = multer({
-  dest: path.join(os.tmpdir(), 'cookies'),
-  limits: {
-    fileSize: 1024 * 1024 // 1MB limit for cookie files
-  },
-  fileFilter: (req, file, cb) => {
-    // Accept .txt files (typical cookie file format)
-    if (file.mimetype === 'text/plain' || file.originalname.endsWith('.txt')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only .txt cookie files are allowed'));
-    }
-  }
-});
-
-// Store uploaded cookie files temporarily
-const cookieFiles = new Map(); // Map of sessionId -> cookieFilePath
 
 // Check if yt-dlp is installed
 function checkYtDlp() {
@@ -140,38 +121,7 @@ const qualityFormats = {
 };
 
 // Get available quality options endpoint
-// Cookie upload endpoint for Instagram authentication
-app.post('/api/upload-cookies', upload.single('cookieFile'), (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No cookie file uploaded' });
-    }
-
-    // Generate a session ID for this cookie file
-    const sessionId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
-    
-    // Store the cookie file path
-    cookieFiles.set(sessionId, req.file.path);
-    
-    // Clean up old cookie files (older than 1 hour)
-    setTimeout(() => {
-      const cookiePath = cookieFiles.get(sessionId);
-      if (cookiePath && fs.existsSync(cookiePath)) {
-        fs.unlinkSync(cookiePath);
-      }
-      cookieFiles.delete(sessionId);
-    }, 60 * 60 * 1000); // 1 hour
-    
-    res.json({ 
-      success: true, 
-      sessionId: sessionId,
-      message: 'Cookie file uploaded successfully. Use this session ID for Instagram downloads.' 
-    });
-  } catch (error) {
-    console.error('Cookie upload error:', error);
-    res.status(500).json({ error: 'Failed to upload cookie file' });
-  }
-});
+// Removed manual cookie upload endpoint - using automated extraction instead
 
 app.get('/api/quality-options', (req, res) => {
   res.json({
@@ -219,7 +169,7 @@ app.post('/api/cancel-download', (req, res) => {
 
 // Download video from supported platforms (YouTube, Instagram, Facebook, Twitter)
 app.post('/api/download-video', async (req, res) => {
-  const { url, filename, quality = 'high', sessionId } = req.body;
+  const { url, filename, quality = 'high' } = req.body;
   
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
@@ -308,23 +258,26 @@ app.post('/api/download-video', async (req, res) => {
         '--yes-playlist' // Explicitly enable playlist/carousel extraction
       ];
       
-      // Check for uploaded cookie file first (production)
-      if (sessionId && cookieFiles.has(sessionId)) {
-        const cookiePath = cookieFiles.get(sessionId);
-        if (fs.existsSync(cookiePath)) {
-          ytDlpArgs.push('--cookies', cookiePath);
-        }
-      }
-      // If explicit cookies file is provided via environment, use it
-      else if (process.env.IG_COOKIES_FILE) {
+      // Try multiple browser cookie sources automatically
+      const browsers = ['chrome', 'firefox', 'edge', 'safari'];
+      let cookiesAdded = false;
+      
+      // First try environment variable for explicit cookie file
+      if (process.env.IG_COOKIES_FILE && fs.existsSync(process.env.IG_COOKIES_FILE)) {
         ytDlpArgs.push('--cookies', process.env.IG_COOKIES_FILE);
+        cookiesAdded = true;
       }
-      // Try to use cookies from browser if available (local development)
+      // Then try browser cookies automatically
       else {
-        try {
-          ytDlpArgs.push('--cookies-from-browser', 'chrome:Default');
-        } catch (e) {
-          // Continue without authentication
+        for (const browser of browsers) {
+          try {
+            ytDlpArgs.push('--cookies-from-browser', `${browser}:Default`);
+            cookiesAdded = true;
+            break; // Use first successful browser
+          } catch (e) {
+            // Try next browser
+            continue;
+          }
         }
       }
     } else if (platform === 'facebook') {

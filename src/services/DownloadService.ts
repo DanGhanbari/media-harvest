@@ -12,39 +12,10 @@ interface DownloadRequest {
   url: string;
   filename: string;
   quality: string;
-  sessionId?: string;
 }
 
 export class DownloadService {
   private static activeDownloads = new Map<string, AbortController>();
-  private static sessionId: string | null = null;
-
-  static async uploadCookies(file: File): Promise<string> {
-    const formData = new FormData();
-    formData.append('cookieFile', file);
-
-    const response = await fetch(API_ENDPOINTS.UPLOAD_COOKIES, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(`Cookie upload failed: ${errorData.error}`);
-    }
-
-    const data = await response.json();
-    this.sessionId = data.sessionId;
-    return data.sessionId;
-  }
-
-  static getSessionId(): string | null {
-    return this.sessionId;
-  }
-
-  static clearSession(): void {
-    this.sessionId = null;
-  }
 
   static async downloadMedia(item: MediaItem, quality?: string, onProgress?: (progress: number) => void): Promise<void> {
     const downloadId = item.url;
@@ -269,11 +240,6 @@ export class DownloadService {
             filename: item.filename,
             quality: quality
           };
-
-          // Include session ID if available (for Instagram authentication)
-          if (this.sessionId) {
-            requestBody.sessionId = this.sessionId;
-          }
 
           const response = await fetch(API_ENDPOINTS.DOWNLOAD_VIDEO, {
             method: 'POST',
