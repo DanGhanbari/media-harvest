@@ -1,11 +1,11 @@
 import { API_ENDPOINTS } from '../config/api';
 
 export interface ConversionRequest {
-  url?: string;
   format: string;
   quality: string;
   leftChannel?: number;
   rightChannel?: number;
+  resolution?: string;
 }
 
 export interface ConversionOptions {
@@ -44,15 +44,15 @@ export class VideoConversionService {
   }
 
   static async convertVideo(
-    file: File | null,
-    url: string | null,
+    file: File,
     format: string,
     quality: string,
     onProgress?: (progress: number) => void,
     leftChannel?: number,
-    rightChannel?: number
+    rightChannel?: number,
+    resolution?: string
   ): Promise<void> {
-    const conversionId = file ? file.name : url || 'unknown';
+    const conversionId = file.name;
     
     // Check if conversion is already active
     if (this.activeConversions.has(conversionId)) {
@@ -65,13 +65,7 @@ export class VideoConversionService {
     try {
       const formData = new FormData();
       
-      if (file) {
-        formData.append('video', file);
-      } else if (url) {
-        formData.append('url', url);
-      } else {
-        throw new Error('No video file or URL provided');
-      }
+      formData.append('video', file);
       
       formData.append('format', format);
       formData.append('quality', quality);
@@ -80,6 +74,11 @@ export class VideoConversionService {
       if (leftChannel !== undefined && rightChannel !== undefined) {
         formData.append('leftChannel', leftChannel.toString());
         formData.append('rightChannel', rightChannel.toString());
+      }
+      
+      // Add resolution if specified
+      if (resolution && resolution !== 'original') {
+        formData.append('resolution', resolution);
       }
 
       const response = await fetch(API_ENDPOINTS.CONVERT_VIDEO, {

@@ -17,10 +17,9 @@ interface AudioChannel {
 
 export const VideoConverter = () => {
   const [file, setFile] = useState<File | null>(null);
-  const [url, setUrl] = useState('');
-  const [inputType, setInputType] = useState<'file' | 'url'>('file');
   const [format, setFormat] = useState('mp4');
   const [quality, setQuality] = useState('medium');
+  const [resolution, setResolution] = useState('original');
   const [isConverting, setIsConverting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [audioChannels, setAudioChannels] = useState<AudioChannel[]>([]);
@@ -97,19 +96,10 @@ export const VideoConverter = () => {
   };
 
   const handleConvert = async () => {
-    if (inputType === 'file' && !file) {
+    if (!file) {
       toast({
         title: "Error",
         description: "Please select a video file to convert",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (inputType === 'url' && !url) {
-      toast({
-        title: "Error",
-        description: "Please enter a valid video URL",
         variant: "destructive",
       });
       return;
@@ -122,15 +112,15 @@ export const VideoConverter = () => {
 
     try {
       await VideoConversionService.convertVideo(
-        inputType === 'file' ? file : null,
-        inputType === 'url' ? url : null,
+        file,
         format,
         quality,
         (progressValue) => {
           setProgress(progressValue);
         },
         leftChannel,
-        rightChannel
+        rightChannel,
+        resolution
       );
       
       toast({
@@ -152,7 +142,6 @@ export const VideoConverter = () => {
 
   const resetForm = () => {
     setFile(null);
-    setUrl('');
     setConversionError(null);
     setHasConverted(false);
     setProgress(0);
@@ -186,85 +175,44 @@ export const VideoConverter = () => {
           </p>
         </div>
 
-        {/* Input Type Selection */}
+        {/* File Upload */}
         <Card className="p-6 mb-6">
-          <div className="flex flex-col sm:flex-row gap-4 mb-6">
-            <Button
-              variant={inputType === 'file' ? 'default' : 'outline'}
-              onClick={() => setInputType('file')}
-              className="flex-1"
-            >
-              <Upload className="w-4 h-4 mr-2" />
-              Upload File
-            </Button>
-            <Button
-              variant={inputType === 'url' ? 'default' : 'outline'}
-              onClick={() => setInputType('url')}
-              className="flex-1"
-            >
-              <Video className="w-4 h-4 mr-2" />
-              From URL
-            </Button>
+          <div className="flex items-center gap-2 mb-4">
+            <Upload className="w-5 h-5 text-primary" />
+            <h3 className="text-lg font-semibold">Upload Video File</h3>
           </div>
-
-          {/* File Upload */}
-          {inputType === 'file' && (
-            <div className="space-y-4">
-              <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary/50 transition-colors">
-                <input
-                  id="video-file"
-                  type="file"
-                  accept="video/*,.mp4,.webm,.avi,.mov,.mkv,.flv,.wmv,.m4v,.mxf"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-                <label htmlFor="video-file" className="cursor-pointer">
-                  <FileVideo className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                  {file ? (
-                    <div>
-                      <p className="text-lg font-medium text-foreground">{file.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {(file.size / (1024 * 1024)).toFixed(2)} MB
-                      </p>
-                    </div>
-                  ) : (
-                    <div>
-                      <p className="text-lg font-medium text-foreground mb-2">
-                        Click to select a video file
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        Supports MP4, WebM, AVI, MOV, MKV, FLV, WMV, M4V, MXF
-                      </p>
-                    </div>
-                  )}
-                </label>
-              </div>
+          
+          <div className="space-y-4">
+            <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary/50 transition-colors">
+              <input
+                id="video-file"
+                type="file"
+                accept="video/*,.mp4,.webm,.avi,.mov,.mkv,.flv,.wmv,.m4v,.mxf"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              <label htmlFor="video-file" className="cursor-pointer">
+                <FileVideo className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                {file ? (
+                  <div>
+                    <p className="text-lg font-medium text-foreground">{file.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {(file.size / (1024 * 1024)).toFixed(2)} MB
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-lg font-medium text-foreground mb-2">
+                      Click to select a video file
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Supports MP4, WebM, AVI, MOV, MKV, FLV, WMV, M4V, MXF
+                    </p>
+                  </div>
+                )}
+              </label>
             </div>
-          )}
-
-          {/* URL Input */}
-          {inputType === 'url' && (
-            <div className="space-y-4">
-              <div className="relative">
-                <Video className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                <Input
-                  type="url"
-                  placeholder="https://example.com/video.mp4"
-                  value={url}
-                  onChange={(e) => {
-                    setUrl(e.target.value);
-                    setHasConverted(false);
-                    setConversionError(null);
-                  }}
-                  className="pl-12 h-14 text-lg bg-input/50 backdrop-blur-sm border-border/50 focus:border-primary transition-smooth"
-                  disabled={isConverting}
-                />
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Enter a direct link to a video file or a supported platform URL
-              </p>
-            </div>
-          )}
+          </div>
         </Card>
 
         {/* Conversion Settings */}
@@ -274,7 +222,7 @@ export const VideoConverter = () => {
             <h3 className="text-lg font-semibold">Conversion Settings</h3>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Format Selection */}
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Output Format</label>
@@ -311,6 +259,42 @@ export const VideoConverter = () => {
                       </div>
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Resolution Selection */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Resolution</label>
+              <Select value={resolution} onValueChange={setResolution}>
+                <SelectTrigger className="h-12">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="original">
+                    <div className="flex flex-col">
+                      <span className="font-medium">Original</span>
+                      <span className="text-xs text-muted-foreground">Keep original resolution</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="1920x1080">
+                    <div className="flex flex-col">
+                      <span className="font-medium">1920×1080 (Full HD)</span>
+                      <span className="text-xs text-muted-foreground">Standard HD resolution</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="1280x720">
+                    <div className="flex flex-col">
+                      <span className="font-medium">1280×720 (HD)</span>
+                      <span className="text-xs text-muted-foreground">HD resolution</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="854x480">
+                    <div className="flex flex-col">
+                      <span className="font-medium">854×480 (SD)</span>
+                      <span className="text-xs text-muted-foreground">Standard definition</span>
+                    </div>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -397,7 +381,7 @@ export const VideoConverter = () => {
             <Button 
               onClick={handleConvert} 
               className="flex-1 h-14 text-lg"
-              disabled={isConverting || (inputType === 'file' && !file) || (inputType === 'url' && !url)}
+              disabled={isConverting || !file}
             >
               {isConverting ? (
                 <Loader2 className="w-5 h-5 animate-spin mr-2" />
@@ -407,7 +391,7 @@ export const VideoConverter = () => {
               {isConverting ? 'Converting...' : 'Convert Video'}
             </Button>
             
-            {(file || url) && (
+            {file && (
               <Button 
                 variant="outline" 
                 onClick={resetForm}
