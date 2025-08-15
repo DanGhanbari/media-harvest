@@ -1,8 +1,8 @@
 [build]
-# Use Dockerfile for Railway deployment
-# This ensures Python, pip, and yt-dlp are properly installed
-dockerfilePath = "Dockerfile"
-# Increase build timeout for Docker builds with Python dependencies
+# Use nixpacks for Railway deployment with FFmpeg support
+builder = "NIXPACKS"
+nixpacksConfigPath = "nixpacks.toml"
+# Increase build timeout for nixpacks builds
 buildTimeout = 900  # 15 minutes
 
 [deploy]
