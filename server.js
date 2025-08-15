@@ -793,9 +793,16 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
       if (isDirectFileUrl) {
         console.log(`[CONVERT] Detected direct file URL, using curl for download`);
         
-        // Extract filename from URL
-        const urlPath = new URL(url).pathname;
-        const filename = path.basename(urlPath) || 'downloaded_video';
+        // Extract filename from URL with error handling
+        let filename = 'downloaded_video';
+        try {
+          const urlPath = new URL(url).pathname;
+          filename = path.basename(urlPath) || 'downloaded_video';
+        } catch (urlError) {
+          console.warn(`[CONVERT] Failed to parse URL for filename extraction: ${urlError.message}`);
+          // Use a default filename if URL parsing fails
+          filename = 'downloaded_video';
+        }
         const downloadPath = path.join(tempDir, filename);
         
         // Use curl to download the file
