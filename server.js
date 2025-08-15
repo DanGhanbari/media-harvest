@@ -60,7 +60,7 @@ app.use(express.json({ limit: '10mb' }));
 
 // Configure multer for video file uploads
 const upload = multer({
-  dest: os.tmpdir(),
+  dest: path.join(process.cwd(), 'uploads'),
   limits: {
     fileSize: 10 * 1024 * 1024 * 1024, // 10GB limit
   },
@@ -74,6 +74,12 @@ const upload = multer({
     }
   }
 });
+
+// Ensure uploads directory exists
+const uploadsDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 // Check if yt-dlp is installed
 function checkYtDlp() {

@@ -48,6 +48,9 @@ jspm_packages/
 .npm
 
 # Optional eslint cache
+
+# Uploads directory
+uploads/
 .eslintcache
 
 # Optional stylelint cache
