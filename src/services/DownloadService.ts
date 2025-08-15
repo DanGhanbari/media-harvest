@@ -51,7 +51,7 @@ export class DownloadService {
           },
           body: JSON.stringify({ url: itemUrl }),
         });
-        console.log('Download cancellation request sent to backend');
+        // Download cancellation request sent to backend
       } catch (error) {
         console.error('Failed to send cancellation request to backend:', error);
       }
@@ -84,20 +84,18 @@ export class DownloadService {
   private static async downloadDirectMedia(item: MediaItem, signal?: AbortSignal): Promise<void> {
     try {
       // Use CORS proxy for cross-origin downloads
-      console.log('Downloading from URL:', item.url);
+      // Downloading from URL
       const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(item.url)}`;
       const response = await fetch(proxyUrl, { signal });
       
-      console.log('Response status:', response.status);
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+      // Response received
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
       const blob = await response.blob();
-      console.log('Downloaded blob size:', blob.size, 'bytes');
-      console.log('Downloaded blob type:', blob.type);
+      // Downloaded blob received
       saveAs(blob, item.filename);
     } catch (error) {
       // Fallback: try direct download (might fail due to CORS)
@@ -125,7 +123,7 @@ export class DownloadService {
   }
 
   private static async downloadEmbeddedVideo(item: MediaItem, quality?: string, signal?: AbortSignal, onProgress?: (progress: number) => void): Promise<void> {
-    console.log('Downloading video from supported platform:', item.url);
+    // Downloading video from supported platform
     
     // Handle all supported platforms using the unified backend
     if (this.isSupportedPlatform(item.url)) {
@@ -274,13 +272,12 @@ export class DownloadService {
     
     for (let i = 0; i < downloadServices.length; i++) {
       try {
-        console.log(`Trying download service ${i + 1} for ${this.getPlatformName(item.url)}...`);
+        // Trying download service
         await downloadServices[i]();
-        console.log(`Successfully downloaded via service ${i + 1}`);
         return;
       } catch (error) {
         lastError = error as Error;
-        console.log(`Service ${i + 1} failed:`, error);
+        // Service failed
       }
     }
     
@@ -307,7 +304,7 @@ export class DownloadService {
   }
   
   private static extractYouTubeId(url: string): string {
-    console.log('Attempting to extract YouTube ID from:', url);
+    // Attempting to extract YouTube ID
     
     // Clean URL by removing fragments and the '?si=' parameter
     const cleanUrl = url.split('#')[0].split('?si=')[0];
@@ -343,9 +340,9 @@ export class DownloadService {
     // Try each pattern until we find a match
     for (const pattern of patterns) {
       const match = cleanUrl.match(pattern);
-      console.log('Trying pattern:', pattern, 'Match:', match);
+      // Trying pattern
       if (match && match[1] && (match[1].length === 11 || match[1].length === 10)) {
-        console.log('Found video ID:', match[1]);
+        // Found video ID
         return match[1];
       }
     }
@@ -353,10 +350,10 @@ export class DownloadService {
     // Fallback to original pattern
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|\/videos\/|\/embed\/|\/v\/|\/e\/|watch\?v=|\?v=|&v=|embed\?v=|\/v\/|\/e\/|watch\?v=|\?v=|&v=)([^#&?]*).*/;
     const fallbackMatch = cleanUrl.match(regExp);
-    console.log('Fallback match:', fallbackMatch);
+    // Fallback match
     
     const result = (fallbackMatch && fallbackMatch[2] && (fallbackMatch[2].length === 11 || fallbackMatch[2].length === 10)) ? fallbackMatch[2] : '';
-    console.log('Final result:', result);
+    // Final result
     
     if (!result) {
       throw new Error(`Could not extract YouTube ID from URL: ${url}`);
@@ -389,7 +386,7 @@ export class DownloadService {
       ffmpeg -i "${item.url}" -c:v libx264 -c:a aac "${item.filename}"
     `;
     
-    console.log(ffmpegInstructions);
+    // FFmpeg instructions available
     
     // For demo purposes, fall back to regular download
     await this.downloadDirectMedia(item);

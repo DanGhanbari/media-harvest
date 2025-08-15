@@ -22,7 +22,7 @@ const App = () => (
         </Routes>
       </BrowserRouter>
     </TooltipProvider>
-    <Analytics />
+    <Analytics debug={false} />
   </QueryClientProvider>
 );
 

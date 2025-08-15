@@ -36,11 +36,4 @@ export const createApiUrl = (endpoint: string): string => {
   return `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
 };
 
-// Log the current API configuration (only in development)
-if (import.meta.env.DEV) {
-  console.log('API Configuration:', {
-    baseUrl: API_BASE_URL,
-    endpoints: API_ENDPOINTS,
-    environment: import.meta.env.MODE,
-  });
-}
+// API Configuration loaded for development

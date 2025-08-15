@@ -40,8 +40,6 @@ const corsOptions = {
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.log('CORS blocked origin:', origin);
-      console.log('Allowed origins:', allowedOrigins);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -56,12 +54,7 @@ app.use(cors(corsOptions));
 // Serve static files from the React build directory
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// All other GET requests not handled by the API should return the React app
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
 app.use(express.json({ limit: '10mb' }));
-app.use(express.static('dist')); // Serve built frontend
 
 // Check if yt-dlp is installed
 function checkYtDlp() {
@@ -144,25 +137,19 @@ const activeDownloads = new Map();
 
 // Cancel download endpoint
 app.post('/api/cancel-download', (req, res) => {
-  console.log('Cancel download endpoint called with body:', req.body);
   const { url } = req.body;
   if (!url) {
-    console.log('No URL provided in cancel request');
     return res.status(400).json({ error: 'URL is required' });
   }
   
-  console.log('Active downloads:', Array.from(activeDownloads.keys()));
   const downloadInfo = activeDownloads.get(url);
   if (downloadInfo) {
-    console.log(`Cancelling download for: ${url}`);
     const { ytDlp, tempDir, cleanup } = downloadInfo;
     
     if (ytDlp && !ytDlp.killed) {
-      console.log('Killing yt-dlp process via cancel endpoint...');
       ytDlp.kill('SIGTERM');
       setTimeout(() => {
         if (ytDlp && !ytDlp.killed) {
-          console.log('Force killing yt-dlp process...');
           ytDlp.kill('SIGKILL');
         }
       }, 2000);
@@ -173,7 +160,6 @@ app.post('/api/cancel-download', (req, res) => {
     
     res.json({ success: true, message: 'Download cancelled' });
   } else {
-    console.log(`No active download found for URL: ${url}`);
     res.status(404).json({ error: 'No active download found for this URL' });
   }
 });
@@ -204,14 +190,11 @@ app.post('/api/download-video', async (req, res) => {
   
   // Handle request cancellation
   const cleanup = () => {
-    console.log('Request cancelled by client');
     if (ytDlp && !ytDlp.killed) {
-      console.log('Killing yt-dlp process...');
       ytDlp.kill('SIGTERM');
       // Force kill if SIGTERM doesn't work
       setTimeout(() => {
         if (ytDlp && !ytDlp.killed) {
-          console.log('Force killing yt-dlp process...');
           ytDlp.kill('SIGKILL');
         }
       }, 5000);
@@ -219,7 +202,6 @@ app.post('/api/download-video', async (req, res) => {
     if (tempDir) {
       try {
         fs.rmSync(tempDir, { recursive: true, force: true });
-        console.log('Cleaned up temporary directory');
       } catch (err) {
         console.error('Error cleaning up temp directory:', err);
       }
@@ -233,7 +215,6 @@ app.post('/api/download-video', async (req, res) => {
   
   // Also check if request is already aborted
   if (req.aborted) {
-    console.log('Request already aborted');
     return;
   }
 
@@ -244,8 +225,6 @@ app.post('/api/download-video', async (req, res) => {
     
     // Detect platform and adjust settings accordingly
     const platform = detectPlatform(url);
-    console.log(`Downloading from ${platform}: ${url} with quality: ${quality}`);
-    console.log('About to spawn yt-dlp process...');
     
     // Base arguments for all platforms
     const baseArgs = [
@@ -280,7 +259,7 @@ app.post('/api/download-video', async (req, res) => {
       try {
         ytDlpArgs.push('--cookies-from-browser', 'chrome:Default');
       } catch (e) {
-        console.log('Could not extract cookies from browser, continuing without authentication');
+        // Continue without authentication
       }
       
       // If explicit cookies file is provided, prefer it over browser cookies
@@ -306,7 +285,7 @@ app.post('/api/download-video', async (req, res) => {
       try {
         ytDlpArgs.push('--cookies-from-browser', 'chrome:Default');
       } catch (e) {
-        console.log('Could not extract cookies from browser, continuing without authentication');
+        // Continue without authentication
       }
     } else {
       // Default arguments for other platforms
@@ -350,12 +329,9 @@ app.post('/api/download-video', async (req, res) => {
     ytDlpArgs.push(url);
     
     ytDlp = spawn('yt-dlp', ytDlpArgs);
-    console.log('yt-dlp process spawned successfully');
     
     // Register this download in the active downloads map
     activeDownloads.set(url, { ytDlp, tempDir, cleanup });
-    console.log(`Registered download for: ${url}`);
-    console.log('Current active downloads:', Array.from(activeDownloads.keys()));
     
     let stderr = '';
     let stdout = '';
@@ -363,7 +339,6 @@ app.post('/api/download-video', async (req, res) => {
     // Periodically check if client is still connected
     const connectionCheck = setInterval(() => {
       if (res.destroyed || !res.writable) {
-        console.log('Client connection lost, killing yt-dlp process');
         clearInterval(connectionCheck);
         cleanup();
       }
@@ -376,7 +351,6 @@ app.post('/api/download-video', async (req, res) => {
     
     ytDlp.stdout.on('data', (data) => {
       stdout += data.toString();
-      console.log(data.toString());
     });
     
     ytDlp.stderr.on('data', (data) => {
@@ -425,7 +399,6 @@ app.post('/api/download-video', async (req, res) => {
           
           // If multiple files (carousel post), create a zip archive
           if (sortedFiles.length > 1 && platform === 'instagram') {
-            console.log(`Creating zip archive for ${sortedFiles.length} carousel items`);
             
             const zipFilename = `${filename || 'instagram_carousel'}.zip`;
             res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
@@ -435,7 +408,6 @@ app.post('/api/download-video', async (req, res) => {
             
             // Handle client disconnect
             res.on('close', () => {
-              console.log('Client disconnected during zip transfer');
               archive.destroy();
               fs.rmSync(tempDir, { recursive: true, force: true });
             });
@@ -465,7 +437,6 @@ app.post('/api/download-video', async (req, res) => {
             
             // Clean up after sending
             archive.on('end', () => {
-              console.log('Zip archive sent successfully');
               fs.rmSync(tempDir, { recursive: true, force: true });
             });
             
@@ -484,7 +455,6 @@ app.post('/api/download-video', async (req, res) => {
             
             // Handle client disconnect during file streaming
             res.on('close', () => {
-              console.log('Client disconnected during file transfer');
               fileStream.destroy();
               fs.rmSync(tempDir, { recursive: true, force: true });
             });
