@@ -1,11 +1,12 @@
 # Use Node.js 18 Alpine for smaller size and faster builds
 FROM node:18-alpine
 
-# Install Python, pip, ffmpeg and build dependencies
+# Install Python, pip, ffmpeg, curl and build dependencies
 RUN apk add --no-cache \
     python3 \
     py3-pip \
     ffmpeg \
+    curl \
     && pip3 install --no-cache-dir --break-system-packages --pre yt-dlp
 
 # Set working directory
