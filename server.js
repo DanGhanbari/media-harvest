@@ -805,24 +805,51 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
         }
         const downloadPath = path.join(tempDir, filename);
         
-        // Use curl to download the file
-        const curlArgs = ['-L', '-o', downloadPath, url];
+        // Use curl to download the file with timeout and progress
+        const curlArgs = [
+          '-L', // Follow redirects
+          '--max-time', '300', // 5 minute timeout
+          '--connect-timeout', '30', // 30 second connection timeout
+          '--progress-bar', // Show progress
+          '-o', downloadPath, 
+          url
+        ];
         const downloadProcess = spawn('curl', curlArgs);
         
         let downloadOutput = '';
+        let downloadProgress = '';
+        
+        downloadProcess.stdout.on('data', (data) => {
+          downloadProgress += data.toString();
+        });
+        
         downloadProcess.stderr.on('data', (data) => {
           downloadOutput += data.toString();
         });
         
+        // Set a timeout for the entire download process
+        const downloadTimeout = setTimeout(() => {
+          downloadProcess.kill('SIGTERM');
+        }, 300000); // 5 minutes
+        
         await new Promise((resolve, reject) => {
           downloadProcess.on('close', (code) => {
+            clearTimeout(downloadTimeout);
+            
             if (code === 0 && fs.existsSync(downloadPath)) {
               const stats = fs.statSync(downloadPath);
               console.log(`[CONVERT] Successfully downloaded: ${filename}, size: ${stats.size} bytes`);
               
               if (stats.size === 0) {
                 console.error(`[CONVERT] Downloaded file is empty`);
-                reject(new Error(`Downloaded file is empty`));
+                reject(new Error(`Downloaded file is empty - check if URL is accessible`));
+                return;
+              }
+              
+              // Check if file size is reasonable (not truncated)
+              if (stats.size < 1000) {
+                console.error(`[CONVERT] Downloaded file suspiciously small: ${stats.size} bytes`);
+                reject(new Error(`Downloaded file too small (${stats.size} bytes) - likely incomplete download`));
                 return;
               }
               
@@ -831,8 +858,25 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
               resolve();
             } else {
               console.error(`[CONVERT] Curl download failed with code ${code}:`, downloadOutput);
-              reject(new Error(`Failed to download file from URL (code ${code}): ${downloadOutput}`));
+              
+              let errorMessage = `Failed to download file from URL (code ${code})`;
+              if (code === 124 || downloadOutput.includes('timeout')) {
+                errorMessage = `Download timeout - file too large or connection too slow`;
+              } else if (code === 6) {
+                errorMessage = `Could not resolve host - check URL validity`;
+              } else if (code === 7) {
+                errorMessage = `Failed to connect to host`;
+              } else if (code === 22) {
+                errorMessage = `HTTP error - file not found or access denied`;
+              }
+              
+              reject(new Error(`${errorMessage}: ${downloadOutput}`));
             }
+          });
+          
+          downloadProcess.on('error', (error) => {
+            clearTimeout(downloadTimeout);
+            reject(new Error(`Download process error: ${error.message}`));
           });
         });
       } else {
