@@ -7,6 +7,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Download, Globe, Image, Video, Music, FileImage, Loader2, AlertCircle } from 'lucide-react';
 import { MediaDetectionService, MediaItem } from '@/services/MediaDetectionService';
 import { MediaGrid } from '@/components/MediaGrid';
+import { CookieUpload } from '@/components/CookieUpload';
 
 export const MediaDownloader = () => {
   const [url, setUrl] = useState('');
@@ -138,6 +139,9 @@ export const MediaDownloader = () => {
             </div>
           )}
         </Card>
+
+        {/* Instagram Cookie Upload */}
+        <CookieUpload />
 
         {/* Results */}
         {mediaItems.length > 0 && (
