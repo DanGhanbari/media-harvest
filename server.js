@@ -7,7 +7,8 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import archiver from 'archiver';
-// Removed multer import - no longer needed for manual cookie uploads
+import multer from 'multer';
+// Added multer for video file uploads
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -56,6 +57,23 @@ app.use(cors(corsOptions));
 app.use(express.static(path.join(__dirname, 'dist')));
 
 app.use(express.json({ limit: '10mb' }));
+
+// Configure multer for video file uploads
+const upload = multer({
+  dest: os.tmpdir(),
+  limits: {
+    fileSize: 10 * 1024 * 1024 * 1024, // 10GB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept video files including MXF
+    if (file.mimetype.startsWith('video/') || 
+        file.originalname.match(/\.(mp4|webm|avi|mov|mkv|flv|wmv|m4v|mxf)$/i)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only video files are allowed'));
+    }
+  }
+});
 
 // Check if yt-dlp is installed
 function checkYtDlp() {
@@ -554,13 +572,400 @@ app.get('/api/health', async (req, res) => {
   });
 });
 
+// Probe audio channels in uploaded video
+app.post('/api/probe-audio', upload.single('video'), async (req, res) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'audio-probe-'));
+  
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No video file provided' });
+    }
+
+    const inputPath = req.file.path;
+    console.log(`[PROBE-AUDIO] Processing file: ${req.file.originalname} (${req.file.mimetype})`);
+    console.log(`[PROBE-AUDIO] File size: ${req.file.size} bytes`);
+    console.log(`[PROBE-AUDIO] Temp path: ${inputPath}`);
+    
+    // Use ffprobe to get audio stream information
+    const ffprobeArgs = [
+      '-v', 'quiet',
+      '-print_format', 'json',
+      '-show_streams',
+      '-select_streams', 'a',
+      inputPath
+    ];
+    
+    const ffprobeProcess = spawn('ffprobe', ffprobeArgs);
+    
+    let probeOutput = '';
+    let errorOutput = '';
+    
+    ffprobeProcess.stdout.on('data', (data) => {
+      probeOutput += data.toString();
+    });
+    
+    ffprobeProcess.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+    });
+    
+    await new Promise((resolve, reject) => {
+      ffprobeProcess.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          console.error('FFprobe stderr:', errorOutput);
+          reject(new Error(`FFprobe failed with code ${code}: ${errorOutput}`));
+        }
+      });
+    });
+    
+    if (!probeOutput.trim()) {
+      console.error('FFprobe returned empty output for file:', req.file.originalname);
+      return res.json({ channels: [], hasAudio: false, error: 'No probe data returned' });
+    }
+    
+    let probeData;
+    try {
+      probeData = JSON.parse(probeOutput);
+    } catch (parseError) {
+      console.error('Failed to parse FFprobe output:', parseError.message);
+      console.error('Raw output:', probeOutput);
+      return res.status(500).json({ 
+        error: 'Failed to parse audio probe data', 
+        details: parseError.message 
+      });
+    }
+    
+    const audioStreams = probeData.streams || [];
+    console.log(`[PROBE-AUDIO] Found ${audioStreams.length} audio streams`);
+    
+    if (audioStreams.length === 0) {
+      console.log(`[PROBE-AUDIO] No audio streams found`);
+      return res.json({ channels: [], hasAudio: false });
+    }
+    
+    // Handle MXF files with multiple mono streams by aggregating all channels
+    const channels = [];
+    let totalChannels = 0;
+    
+    audioStreams.forEach((stream, streamIndex) => {
+      const streamChannels = stream.channels || 0;
+      const streamLayout = stream.channel_layout || 'unknown';
+      
+      console.log(`[PROBE-AUDIO] Stream ${streamIndex}: ${streamChannels} channels, Layout: ${streamLayout}`);
+      
+      for (let i = 0; i < streamChannels; i++) {
+        channels.push({
+          index: totalChannels,
+          label: `Stream ${streamIndex + 1} Ch ${i + 1}`,
+          description: `Stream ${streamIndex + 1} - ${getChannelDescription(i, streamLayout)}`
+        });
+        totalChannels++;
+      }
+    });
+    
+    console.log(`[PROBE-AUDIO] Total channels across all streams: ${totalChannels}`);
+    
+    // Use first stream info for codec details
+    const firstAudioStream = audioStreams[0];
+    const channelLayout = audioStreams.length > 1 ? 'multi-stream' : (firstAudioStream.channel_layout || 'unknown');
+    
+    const response = {
+      channels,
+      hasAudio: true,
+      channelCount: totalChannels,
+      channelLayout,
+      streamCount: audioStreams.length,
+      streamInfo: {
+        codec: firstAudioStream.codec_name,
+        sampleRate: firstAudioStream.sample_rate,
+        bitRate: firstAudioStream.bit_rate
+      }
+    };
+    console.log(`[PROBE-AUDIO] Sending response:`, JSON.stringify(response, null, 2));
+    res.json(response);
+    
+  } catch (error) {
+    console.error('Audio probe error:', error);
+    res.status(500).json({ 
+      error: 'Failed to probe audio channels', 
+      details: error.message 
+    });
+  } finally {
+    // Clean up temp files
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+// Helper function to get channel description based on layout
+function getChannelDescription(index, layout) {
+  const commonLayouts = {
+    'mono': ['Center'],
+    'stereo': ['Left', 'Right'],
+    '2.1': ['Left', 'Right', 'LFE'],
+    '3.0': ['Left', 'Right', 'Center'],
+    '4.0': ['Front Left', 'Front Right', 'Back Left', 'Back Right'],
+    '5.0': ['Front Left', 'Front Right', 'Center', 'Back Left', 'Back Right'],
+    '5.1': ['Front Left', 'Front Right', 'Center', 'LFE', 'Back Left', 'Back Right'],
+    '7.1': ['Front Left', 'Front Right', 'Center', 'LFE', 'Back Left', 'Back Right', 'Side Left', 'Side Right']
+  };
+  
+  const layoutKey = layout.toLowerCase();
+  if (commonLayouts[layoutKey] && commonLayouts[layoutKey][index]) {
+    return commonLayouts[layoutKey][index];
+  }
+  
+  return `Channel ${index + 1}`;
+}
+
+// Video conversion endpoint
+app.post('/api/convert-video', upload.single('video'), async (req, res) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'video-convert-'));
+  
+  try {
+    const { url, format = 'mp4', quality = 'medium', leftChannel, rightChannel } = req.body;
+    let inputPath;
+    let originalFilename = 'converted_video';
+    
+    // Handle file upload or URL input
+    if (req.file) {
+      inputPath = req.file.path;
+      originalFilename = path.parse(req.file.originalname).name;
+    } else if (url) {
+      console.log(`[CONVERT] Processing URL: ${url}`);
+      
+      // Check if it's a direct file URL or a platform URL
+      const isDirectFileUrl = /\.(mp4|avi|mov|mkv|webm|mxf|m4v|flv|wmv|3gp)$/i.test(url);
+      
+      if (isDirectFileUrl) {
+        console.log(`[CONVERT] Detected direct file URL, using curl for download`);
+        
+        // Extract filename from URL
+        const urlPath = new URL(url).pathname;
+        const filename = path.basename(urlPath) || 'downloaded_video';
+        const downloadPath = path.join(tempDir, filename);
+        
+        // Use curl to download the file
+        const curlArgs = ['-L', '-o', downloadPath, url];
+        const downloadProcess = spawn('curl', curlArgs);
+        
+        let downloadOutput = '';
+        downloadProcess.stderr.on('data', (data) => {
+          downloadOutput += data.toString();
+        });
+        
+        await new Promise((resolve, reject) => {
+          downloadProcess.on('close', (code) => {
+            if (code === 0 && fs.existsSync(downloadPath)) {
+              inputPath = downloadPath;
+              originalFilename = path.parse(filename).name;
+              console.log(`[CONVERT] Successfully downloaded: ${filename}`);
+              resolve();
+            } else {
+              console.error(`[CONVERT] Curl download failed:`, downloadOutput);
+              reject(new Error(`Failed to download file from URL: ${downloadOutput}`));
+            }
+          });
+        });
+      } else {
+        console.log(`[CONVERT] Detected platform URL, using yt-dlp`);
+        
+        // Download video from platform URL using yt-dlp
+        const downloadPath = path.join(tempDir, 'input.%(ext)s');
+        
+        const ytDlpArgs = [
+          '--no-playlist',
+          '--extract-flat', 'false',
+          '-o', downloadPath,
+          url
+        ];
+        
+        const downloadProcess = spawn('yt-dlp', ytDlpArgs);
+        
+        await new Promise((resolve, reject) => {
+          downloadProcess.on('close', (code) => {
+            if (code === 0) {
+              // Find the downloaded file
+              const files = fs.readdirSync(tempDir).filter(f => f.startsWith('input.'));
+              if (files.length > 0) {
+                inputPath = path.join(tempDir, files[0]);
+                originalFilename = path.parse(files[0]).name;
+                console.log(`[CONVERT] Successfully downloaded via yt-dlp: ${files[0]}`);
+                resolve();
+              } else {
+                reject(new Error('No file downloaded'));
+              }
+            } else {
+              reject(new Error('Failed to download video'));
+            }
+          });
+        });
+      }
+    } else {
+      return res.status(400).json({ error: 'No video file or URL provided' });
+    }
+    
+    // Set up output path
+    const outputFilename = `${originalFilename}_converted.${format}`;
+    const outputPath = path.join(tempDir, outputFilename);
+    
+    // Configure ffmpeg arguments based on format and quality
+    let ffmpegArgs = ['-i', inputPath];
+    
+    // Handle audio channel mapping if specified
+    if (leftChannel !== undefined && rightChannel !== undefined) {
+      console.log(`Debug: Mapping audio channels - Left: ${leftChannel}, Right: ${rightChannel}`);
+      
+      // First, probe the input to determine the number of audio streams
+      const probeArgs = ['-v', 'quiet', '-print_format', 'json', '-show_streams', '-select_streams', 'a', inputPath];
+      const probeProcess = spawn('ffprobe', probeArgs);
+      
+      let probeOutput = '';
+      probeProcess.stdout.on('data', (data) => {
+        probeOutput += data.toString();
+      });
+      
+      await new Promise((resolve, reject) => {
+        probeProcess.on('close', (code) => {
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(new Error('Failed to probe audio streams'));
+          }
+        });
+      });
+      
+      const probeData = JSON.parse(probeOutput);
+      const audioStreams = probeData.streams || [];
+      const streamCount = audioStreams.length;
+      
+      console.log(`Debug: Found ${streamCount} audio streams`);
+      
+      if (streamCount > 1) {
+        // For multiple mono streams (like MXF), merge them first then map channels
+        ffmpegArgs.push(
+          '-filter_complex', 
+          `amerge=inputs=${streamCount}[merged];[merged]channelmap=map=${leftChannel}|${rightChannel}:channel_layout=stereo[aout]`,
+          '-map', '0:v',
+          '-map', '[aout]'
+        );
+      } else {
+        // For single stream with multiple channels, use direct channel mapping
+        ffmpegArgs.push(
+          '-filter_complex', 
+          `[0:a]channelmap=map=${leftChannel}|${rightChannel}:channel_layout=stereo[aout]`,
+          '-map', '0:v',
+          '-map', '[aout]'
+        );
+      }
+    }
+    
+    // Quality settings
+    switch (quality) {
+      case 'low':
+        ffmpegArgs.push('-crf', '28', '-preset', 'fast');
+        break;
+      case 'high':
+        ffmpegArgs.push('-crf', '18', '-preset', 'slow');
+        break;
+      default: // medium
+        ffmpegArgs.push('-crf', '23', '-preset', 'medium');
+    }
+    
+    // Format-specific settings
+    switch (format) {
+      case 'webm':
+        ffmpegArgs.push('-c:v', 'libvpx-vp9', '-c:a', 'libopus');
+        break;
+      case 'avi':
+        ffmpegArgs.push('-c:v', 'libx264', '-c:a', 'aac');
+        break;
+      case 'mov':
+        ffmpegArgs.push('-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart');
+        break;
+      case 'mkv':
+        ffmpegArgs.push('-c:v', 'libx264', '-c:a', 'aac');
+        break;
+      case 'mp3':
+        ffmpegArgs.push('-vn', '-c:a', 'libmp3lame', '-b:a', '192k');
+        break;
+      case 'wav':
+        ffmpegArgs.push('-vn', '-c:a', 'pcm_s16le');
+        break;
+      default: // mp4
+        ffmpegArgs.push('-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart');
+    }
+    
+    ffmpegArgs.push('-y', outputPath);
+    
+    // Run ffmpeg conversion
+    const ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
+    
+    let conversionOutput = '';
+    ffmpegProcess.stderr.on('data', (data) => {
+      conversionOutput += data.toString();
+    });
+    
+    await new Promise((resolve, reject) => {
+      ffmpegProcess.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`FFmpeg conversion failed: ${conversionOutput}`));
+        }
+      });
+    });
+    
+    // Check if output file exists
+    if (!fs.existsSync(outputPath)) {
+      throw new Error('Conversion completed but output file not found');
+    }
+    
+    // Send the converted file
+    res.setHeader('Content-Disposition', `attachment; filename="${outputFilename}"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    
+    const fileStream = fs.createReadStream(outputPath);
+    fileStream.pipe(res);
+    
+    fileStream.on('end', () => {
+      // Clean up temp directory
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+    
+  } catch (error) {
+    console.error('Video conversion error:', error);
+    
+    // Clean up temp directory on error
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+    
+    res.status(500).json({ 
+      error: 'Video conversion failed', 
+      details: error.message 
+    });
+  }
+});
+
 // Serve frontend for all other GET routes (not API routes)
 app.get('*', (req, res) => {
-  // Only serve frontend for non-API routes
-  if (!req.path.startsWith('/api/')) {
+  // Only serve frontend for HTML routes (not API, assets, or other static files)
+  if (!req.path.startsWith('/api/') && 
+      !req.path.startsWith('/assets/') && 
+      !req.path.includes('.') && 
+      req.accepts('html')) {
     res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-  } else {
+  } else if (req.path.startsWith('/api/')) {
     res.status(404).json({ error: 'API endpoint not found' });
+  } else {
+    // For all other requests (static files, etc.), let them 404 naturally
+    res.status(404).send('File not found');
   }
 });
 

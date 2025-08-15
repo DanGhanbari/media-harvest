@@ -1,15 +1,15 @@
-import { MediaDownloader } from '@/components/MediaDownloader';
+import { VideoConverter } from '@/components/VideoConverter';
 import { Navigation } from '@/components/Navigation';
 
-const Index = () => {
+const VideoConverterPage = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
       <div className="container mx-auto px-4 py-8">
-        <MediaDownloader />
+        <VideoConverter />
       </div>
     </div>
   );
 };
 
-export default Index;
+export default VideoConverterPage;
