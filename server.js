@@ -1023,6 +1023,7 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
         } else {
           console.error(`FFmpeg failed with exit code ${code}`);
           console.error('FFmpeg error output:', conversionError);
+          console.error('FFmpeg full output:', conversionOutput);
           
           // Extract meaningful error message
           let errorMessage = 'Unknown FFmpeg error';
@@ -1036,6 +1037,18 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
             errorMessage = 'Audio merging failed - check channel configuration';
           } else if (conversionError.includes('channelmap')) {
             errorMessage = 'Audio channel mapping failed - invalid channel indices';
+          } else if (conversionError.includes('does not contain any stream')) {
+            errorMessage = 'Input file contains no valid streams';
+          } else if (conversionError.includes('Invalid data found')) {
+            errorMessage = 'Input file is corrupted or invalid format';
+          } else if (conversionError.includes('Protocol not found')) {
+            errorMessage = 'Network protocol error - unable to access input';
+          } else if (conversionError.includes('Connection refused')) {
+            errorMessage = 'Network connection failed';
+          } else if (conversionError.includes('HTTP error')) {
+            errorMessage = 'HTTP error accessing input file';
+          } else if (code === 183) {
+            errorMessage = `FFmpeg exit code 183 - detailed error: ${conversionError.slice(-200)}`;
           }
           
           reject(new Error(`FFmpeg conversion failed (code ${code}): ${errorMessage}`));
