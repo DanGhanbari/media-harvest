@@ -729,8 +729,50 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
   
   try {
     const { url, format = 'mp4', quality = 'medium', leftChannel, rightChannel } = req.body;
+    
+    // Input validation
+    const validFormats = ['mp4', 'avi', 'mov', 'mkv', 'webm', 'mp3', 'wav'];
+    const validQualities = ['low', 'medium', 'high'];
+    
+    if (!validFormats.includes(format)) {
+      return res.status(400).json({ 
+        error: 'Invalid format', 
+        details: `Supported formats: ${validFormats.join(', ')}` 
+      });
+    }
+    
+    if (!validQualities.includes(quality)) {
+      return res.status(400).json({ 
+        error: 'Invalid quality', 
+        details: `Supported qualities: ${validQualities.join(', ')}` 
+      });
+    }
+    
+    // Validate channel parameters if provided
+    if ((leftChannel !== undefined || rightChannel !== undefined) && 
+        (leftChannel === undefined || rightChannel === undefined)) {
+      return res.status(400).json({ 
+        error: 'Invalid channel mapping', 
+        details: 'Both leftChannel and rightChannel must be provided together' 
+      });
+    }
+    
+    if (leftChannel !== undefined && rightChannel !== undefined) {
+      const leftCh = parseInt(leftChannel);
+      const rightCh = parseInt(rightChannel);
+      
+      if (isNaN(leftCh) || isNaN(rightCh) || leftCh < 0 || rightCh < 0) {
+        return res.status(400).json({ 
+          error: 'Invalid channel indices', 
+          details: 'Channel indices must be non-negative integers' 
+        });
+      }
+    }
+    
     let inputPath;
     let originalFilename = 'converted_video';
+    
+    console.log(`[CONVERT] Starting conversion - Format: ${format}, Quality: ${quality}, Channels: ${leftChannel}-${rightChannel}`);
     
     // Handle file upload or URL input
     if (req.file) {
@@ -819,49 +861,88 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
     
     // Handle audio channel mapping if specified
     if (leftChannel !== undefined && rightChannel !== undefined) {
-      console.log(`Debug: Mapping audio channels - Left: ${leftChannel}, Right: ${rightChannel}`);
-      
-      // First, probe the input to determine the number of audio streams
-      const probeArgs = ['-v', 'quiet', '-print_format', 'json', '-show_streams', '-select_streams', 'a', inputPath];
-      const probeProcess = spawn('ffprobe', probeArgs);
-      
-      let probeOutput = '';
-      probeProcess.stdout.on('data', (data) => {
-        probeOutput += data.toString();
-      });
-      
-      await new Promise((resolve, reject) => {
-        probeProcess.on('close', (code) => {
-          if (code === 0) {
-            resolve();
-          } else {
-            reject(new Error('Failed to probe audio streams'));
-          }
+      try {
+        // Validate channel parameters
+        const leftCh = parseInt(leftChannel);
+        const rightCh = parseInt(rightChannel);
+        
+        if (isNaN(leftCh) || isNaN(rightCh) || leftCh < 0 || rightCh < 0) {
+          throw new Error(`Invalid channel parameters: left=${leftChannel}, right=${rightChannel}`);
+        }
+        
+        console.log(`Debug: Mapping audio channels - Left: ${leftCh}, Right: ${rightCh}`);
+        
+        // First, probe the input to determine the number of audio streams
+        const probeArgs = ['-v', 'quiet', '-print_format', 'json', '-show_streams', '-select_streams', 'a', inputPath];
+        const probeProcess = spawn('ffprobe', probeArgs);
+        
+        let probeOutput = '';
+        let probeError = '';
+        
+        probeProcess.stdout.on('data', (data) => {
+          probeOutput += data.toString();
         });
-      });
-      
-      const probeData = JSON.parse(probeOutput);
-      const audioStreams = probeData.streams || [];
-      const streamCount = audioStreams.length;
-      
-      console.log(`Debug: Found ${streamCount} audio streams`);
-      
-      if (streamCount > 1) {
-        // For multiple mono streams (like MXF), merge them first then map channels
-        ffmpegArgs.push(
-          '-filter_complex', 
-          `amerge=inputs=${streamCount}[merged];[merged]channelmap=map=${leftChannel}|${rightChannel}:channel_layout=stereo[aout]`,
-          '-map', '0:v',
-          '-map', '[aout]'
-        );
-      } else {
-        // For single stream with multiple channels, use direct channel mapping
-        ffmpegArgs.push(
-          '-filter_complex', 
-          `[0:a]channelmap=map=${leftChannel}|${rightChannel}:channel_layout=stereo[aout]`,
-          '-map', '0:v',
-          '-map', '[aout]'
-        );
+        
+        probeProcess.stderr.on('data', (data) => {
+          probeError += data.toString();
+        });
+        
+        await new Promise((resolve, reject) => {
+          probeProcess.on('close', (code) => {
+            if (code === 0 && probeOutput.trim()) {
+              resolve();
+            } else {
+              reject(new Error(`Failed to probe audio streams: ${probeError || 'No output'}`));
+            }
+          });
+        });
+        
+        let probeData;
+        try {
+          probeData = JSON.parse(probeOutput);
+        } catch (parseError) {
+          throw new Error(`Failed to parse probe output: ${parseError.message}`);
+        }
+        
+        const audioStreams = probeData.streams || [];
+        const streamCount = audioStreams.length;
+        
+        if (streamCount === 0) {
+          throw new Error('No audio streams found in input file');
+        }
+        
+        console.log(`Debug: Found ${streamCount} audio streams`);
+        
+        // Validate channel indices against available channels
+        let totalChannels = 0;
+        audioStreams.forEach(stream => {
+          totalChannels += stream.channels || 1;
+        });
+        
+        if (leftCh >= totalChannels || rightCh >= totalChannels) {
+          throw new Error(`Channel index out of range. Available channels: 0-${totalChannels-1}, requested: ${leftCh}, ${rightCh}`);
+        }
+        
+        if (streamCount > 1) {
+          // For multiple mono streams (like MXF), merge them first then map channels
+          ffmpegArgs.push(
+            '-filter_complex', 
+            `amerge=inputs=${streamCount}[merged];[merged]channelmap=map=${leftCh}|${rightCh}:channel_layout=stereo[aout]`,
+            '-map', '0:v',
+            '-map', '[aout]'
+          );
+        } else {
+          // For single stream with multiple channels, use direct channel mapping
+          ffmpegArgs.push(
+            '-filter_complex', 
+            `[0:a]channelmap=map=${leftCh}|${rightCh}:channel_layout=stereo[aout]`,
+            '-map', '0:v',
+            '-map', '[aout]'
+          );
+        }
+      } catch (channelError) {
+        console.error('Audio channel mapping error:', channelError.message);
+        throw new Error(`Audio channel mapping failed: ${channelError.message}`);
       }
     }
     
@@ -904,20 +985,53 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
     ffmpegArgs.push('-y', outputPath);
     
     // Run ffmpeg conversion
+    console.log(`Debug: Running FFmpeg with args: ${ffmpegArgs.join(' ')}`);
+    
     const ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
     
     let conversionOutput = '';
-    ffmpegProcess.stderr.on('data', (data) => {
+    let conversionError = '';
+    
+    ffmpegProcess.stdout.on('data', (data) => {
       conversionOutput += data.toString();
+    });
+    
+    ffmpegProcess.stderr.on('data', (data) => {
+      const output = data.toString();
+      conversionOutput += output;
+      conversionError += output;
     });
     
     await new Promise((resolve, reject) => {
       ffmpegProcess.on('close', (code) => {
         if (code === 0) {
+          console.log('FFmpeg conversion completed successfully');
           resolve();
         } else {
-          reject(new Error(`FFmpeg conversion failed: ${conversionOutput}`));
+          console.error(`FFmpeg failed with exit code ${code}`);
+          console.error('FFmpeg error output:', conversionError);
+          
+          // Extract meaningful error message
+          let errorMessage = 'Unknown FFmpeg error';
+          if (conversionError.includes('Invalid argument')) {
+            errorMessage = 'Invalid FFmpeg arguments or unsupported format';
+          } else if (conversionError.includes('No such file')) {
+            errorMessage = 'Input file not found or inaccessible';
+          } else if (conversionError.includes('Permission denied')) {
+            errorMessage = 'Permission denied accessing file';
+          } else if (conversionError.includes('amerge')) {
+            errorMessage = 'Audio merging failed - check channel configuration';
+          } else if (conversionError.includes('channelmap')) {
+            errorMessage = 'Audio channel mapping failed - invalid channel indices';
+          }
+          
+          reject(new Error(`FFmpeg conversion failed (code ${code}): ${errorMessage}`));
         }
+      });
+      
+      ffmpegProcess.on('error', (error) => {
+        console.error('FFmpeg process error:', error);
+        reject(new Error(`Failed to start FFmpeg: ${error.message}`));
       });
     });
     
