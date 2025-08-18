@@ -352,7 +352,6 @@ app.post('/api/download-video', async (req, res) => {
         ...baseArgs,
         '--no-playlist',
         '--no-abort-on-error',
-        '--continue-on-error',
         '--ignore-errors',
         '--extractor-retries', '5',
         '--fragment-retries', '5',
