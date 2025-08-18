@@ -347,22 +347,25 @@ app.post('/api/download-video', async (req, res) => {
         // Continue without authentication
       }
     } else if (platform === 'youtube') {
-      // YouTube-specific arguments with robust error handling and authentication
+      // YouTube-specific arguments with robust error handling
       var ytDlpArgs = [
         ...baseArgs,
         '--no-playlist',
         '--no-abort-on-error',
         '--ignore-errors',
-        '--extractor-retries', '5',
-        '--fragment-retries', '5',
-        '--retry-sleep', 'linear=1::3',
+        '--extractor-retries', '10',
+        '--fragment-retries', '10',
+        '--retry-sleep', 'linear=1::5',
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        '--sleep-interval', '1',
-        '--max-sleep-interval', '5'
+        '--sleep-interval', '2',
+        '--max-sleep-interval', '10',
+        '--force-ipv4', // Force IPv4 to avoid some network issues
+        '--no-check-certificate', // Skip certificate verification
+        '--geo-bypass', // Try to bypass geo-restrictions
+        '--age-limit', '0' // No age limit restrictions
       ];
       
-      // Try to use cookies for YouTube authentication to bypass bot detection
-      // First try environment variable for explicit cookie file
+      // Try to use cookies for YouTube authentication if available
       if (process.env.YOUTUBE_COOKIES_FILE && fs.existsSync(process.env.YOUTUBE_COOKIES_FILE)) {
         ytDlpArgs.push('--cookies', process.env.YOUTUBE_COOKIES_FILE);
       }
