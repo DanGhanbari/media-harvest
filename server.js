@@ -346,6 +346,35 @@ app.post('/api/download-video', async (req, res) => {
       } catch (e) {
         // Continue without authentication
       }
+    } else if (platform === 'youtube') {
+      // YouTube-specific arguments with authentication
+      var ytDlpArgs = [
+        ...baseArgs,
+        '--no-playlist',
+        '--no-abort-on-error',
+        '--continue-on-error',
+        '--extractor-retries', '3',
+        '--fragment-retries', '3',
+        '--retry-sleep', 'linear=1::2'
+      ];
+      
+      // Try multiple browser cookie sources for YouTube authentication
+      const browsers = ['chrome', 'firefox', 'edge', 'safari'];
+      let cookiesAdded = false;
+      
+      // Only try browser cookies in non-production environments
+      if (!isProductionEnvironment()) {
+        for (const browser of browsers) {
+          try {
+            ytDlpArgs.push('--cookies-from-browser', `${browser}:Default`);
+            cookiesAdded = true;
+            break; // Use first successful browser
+          } catch (e) {
+            // Try next browser
+            continue;
+          }
+        }
+      }
     } else {
       // Default arguments for other platforms
       var ytDlpArgs = [
