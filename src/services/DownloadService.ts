@@ -36,6 +36,16 @@ export class DownloadService {
       return;
     }
 
+    // Check if we're on Vercel (serverless platform that doesn't support WebSockets)
+    const isVercel = window.location.hostname.includes('vercel.app') || 
+                     window.location.hostname.includes('vercel.com');
+    
+    if (isVercel) {
+      console.log('🔌 CLIENT DEBUG: Vercel environment detected - WebSocket connections not supported on serverless platforms');
+      console.log('🔌 CLIENT DEBUG: Downloads will work without real-time progress updates');
+      return;
+    }
+
     // In production, platforms like Railway handle HTTPS termination at load balancer level
     // The WebSocket connection should use the same protocol as the current page
     // but fallback to ws:// if wss:// fails in production environments

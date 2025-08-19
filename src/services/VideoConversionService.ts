@@ -45,6 +45,16 @@ export class VideoConversionService {
       return;
     }
 
+    // Check if we're on Vercel (serverless platform that doesn't support WebSockets)
+    const isVercel = window.location.hostname.includes('vercel.app') || 
+                     window.location.hostname.includes('vercel.com');
+    
+    if (isVercel) {
+      console.log('🔌 CLIENT DEBUG: Vercel environment detected - WebSocket connections not supported on serverless platforms');
+      console.log('🔌 CLIENT DEBUG: Video conversion will work without real-time progress updates');
+      return;
+    }
+
     // In production, platforms like Railway handle HTTPS termination at load balancer level
     // The WebSocket connection should use the same protocol as the current page
     // but fallback to ws:// if wss:// fails in production environments
@@ -146,6 +156,15 @@ export class VideoConversionService {
     if (onProgress) {
       console.log('VideoConversionService: Registering progress callback');
       this.progressCallbacks.set('conversion', onProgress);
+      
+      // If WebSocket is not available (e.g., on Vercel), provide a fallback message
+      const isVercel = window.location.hostname.includes('vercel.app') || 
+                       window.location.hostname.includes('vercel.com');
+      if (isVercel) {
+        console.log('🔧 CLIENT DEBUG: WebSocket not available - progress updates will not be real-time');
+        // Optionally call progress callback with initial state
+        onProgress(0);
+      }
     }
 
     const abortController = new AbortController();
