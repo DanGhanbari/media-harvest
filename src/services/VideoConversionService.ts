@@ -36,14 +36,18 @@ export class VideoConversionService {
   private static progressCallbacks = new Map<string, (progress: number, details?: ProgressDetails) => void>();
   private static sessionId: string = Math.random().toString(36).substring(2, 15);
 
-  static initWebSocket(): void {
+  static initWebSocket(useSecure: boolean = true): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       return;
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    // In production, platforms like Railway handle HTTPS termination at load balancer level
+    // The WebSocket connection should use the same protocol as the current page
+    // but fallback to ws:// if wss:// fails in production environments
+    const protocol = (window.location.protocol === 'https:' && useSecure) ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}`;
     
+    console.log(`Attempting WebSocket connection to: ${wsUrl}`);
     this.ws = new WebSocket(wsUrl);
     
     this.ws.onopen = () => {
@@ -81,6 +85,13 @@ export class VideoConversionService {
     
     this.ws.onerror = (error) => {
       console.error('WebSocket error:', error);
+      // If wss:// fails in production, try fallback to ws://
+      if (window.location.protocol === 'https:' && useSecure) {
+        console.log('WSS connection failed, attempting fallback to WS...');
+        setTimeout(() => {
+          this.initWebSocket(false); // Retry with non-secure connection
+        }, 1000);
+      }
     };
   }
 
