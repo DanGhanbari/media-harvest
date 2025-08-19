@@ -23,7 +23,7 @@ export const VideoConverter = () => {
   const [isConverting, setIsConverting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [audioChannels, setAudioChannels] = useState<AudioChannel[]>([]);
-  const [hasAudio, setHasAudio] = useState(false);
+  const [hasAudio, setHasAudio] = useState<boolean | null>(null); // null = not probed yet, false = no audio, true = has audio
   const [leftChannel, setLeftChannel] = useState<number | undefined>(undefined);
   const [rightChannel, setRightChannel] = useState<number | undefined>(undefined);
   const [isProbing, setIsProbing] = useState(false);
@@ -32,6 +32,11 @@ export const VideoConverter = () => {
   const { toast } = useToast();
   
   const conversionOptions = VideoConversionService.getConversionOptions();
+  
+  // Filter out audio-only formats if no audio is detected (only after probing is complete)
+  const availableFormats = hasAudio === false 
+    ? conversionOptions.formats.filter(fmt => !['mp3', 'wav'].includes(fmt.value))
+    : conversionOptions.formats; // Show all formats if hasAudio is true or null (not probed yet)
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
@@ -58,7 +63,7 @@ export const VideoConverter = () => {
   const probeAudioChannels = async (videoFile: File) => {
     setIsProbing(true);
     setAudioChannels([]);
-    setHasAudio(false);
+    setHasAudio(null); // Reset to null during probing
     setLeftChannel(undefined);
     setRightChannel(undefined);
     
@@ -81,10 +86,34 @@ export const VideoConverter = () => {
         setAudioChannels(data.channels);
         setHasAudio(true);
         
-        // Set default channel mapping for stereo
+        // Set default channel mapping
         if (data.channels.length >= 2) {
+          // Stereo or multi-channel: map first two channels
           setLeftChannel(0);
           setRightChannel(1);
+        } else if (data.channels.length === 1) {
+          // Mono: map single channel to both left and right
+          setLeftChannel(0);
+          setRightChannel(0);
+        }
+      } else if (!data.hasAudio) {
+        setAudioChannels([]);
+        setHasAudio(false);
+        setLeftChannel(null);
+        setRightChannel(null);
+        
+        // Reset format if currently selected format is audio-only
+        if (['mp3', 'wav'].includes(format)) {
+          setFormat('mp4'); // Default to MP4 for video-only files
+        }
+        
+        // Show info message if provided by backend
+        if (data.message) {
+          toast({
+            title: "Video-only file detected",
+            description: data.message,
+            variant: "default",
+          });
         }
       }
     } catch (error) {
@@ -96,7 +125,10 @@ export const VideoConverter = () => {
   };
 
   const handleConvert = async () => {
+    console.log('🎬 VideoConverter: handleConvert called', { file: file?.name, format, quality });
+    
     if (!file) {
+      console.log('❌ VideoConverter: No file selected');
       toast({
         title: "Error",
         description: "Please select a video file to convert",
@@ -111,6 +143,7 @@ export const VideoConverter = () => {
     setHasConverted(true);
 
     try {
+      console.log('🚀 VideoConverter: Starting conversion with VideoConversionService');
       await VideoConversionService.convertVideo(
         file,
         format,
@@ -231,7 +264,7 @@ export const VideoConverter = () => {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {conversionOptions.formats.map((fmt) => (
+                  {availableFormats.map((fmt) => (
                     <SelectItem key={fmt.value} value={fmt.value}>
                       <div className="flex flex-col">
                         <span className="font-medium">{fmt.label}</span>
@@ -301,14 +334,22 @@ export const VideoConverter = () => {
           </div>
 
           {/* Audio Channel Selection */}
-          {hasAudio && audioChannels.length > 1 && (
+          {hasAudio && audioChannels.length > 0 && (
             <div className="mt-6 p-4 bg-muted/30 rounded-lg border">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                 <h4 className="text-sm font-medium text-foreground">
-                  Audio Channel Mapping ({audioChannels.length} channels detected)
+                  Audio Channel Mapping ({audioChannels.length} channel{audioChannels.length > 1 ? 's' : ''} detected)
                 </h4>
               </div>
+              
+              {audioChannels.length === 1 && (
+                <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-md border border-blue-200 dark:border-blue-800">
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    Mono audio detected. The single channel will be mapped to both left and right output channels.
+                  </p>
+                </div>
+              )}
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Left Channel Selection */}

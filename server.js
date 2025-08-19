@@ -2,19 +2,69 @@ import express from 'express';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import os from 'os';
 import cors from 'cors';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 import archiver from 'archiver';
 import multer from 'multer';
+import { WebSocketServer } from 'ws';
+import http from 'http';
 // Added multer for video file uploads
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Create HTTP server
+const server = http.createServer(app);
+
+// Create WebSocket server
+const wss = new WebSocketServer({ server });
+
+// Store WebSocket connections by session ID
+const wsConnections = new Map();
+
+// WebSocket connection handling
+wss.on('connection', (ws, req) => {
+  console.log('WebSocket client connected');
+  
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+      if (data.type === 'register' && data.sessionId) {
+        wsConnections.set(data.sessionId, ws);
+        console.log(`WebSocket registered for session: ${data.sessionId}`);
+      }
+    } catch (error) {
+      console.error('WebSocket message error:', error);
+    }
+  });
+  
+  ws.on('close', () => {
+    // Remove connection from map when client disconnects
+    for (const [sessionId, connection] of wsConnections.entries()) {
+      if (connection === ws) {
+        wsConnections.delete(sessionId);
+        console.log(`WebSocket disconnected for session: ${sessionId}`);
+        break;
+      }
+    }
+  });
+});
+
+// Function to send progress updates via WebSocket
+function sendProgressUpdate(sessionId, type, progress, details = {}) {
+  const ws = wsConnections.get(sessionId);
+  if (ws && ws.readyState === ws.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'progress',
+      operation: type,
+      progress: progress,
+      ...details
+    }));
+  }
+}
 
 // CORS configuration for production deployment
 const corsOptions = {
@@ -214,7 +264,7 @@ app.post('/api/cancel-download', (req, res) => {
 
 // Download video from supported platforms (YouTube, Instagram, Facebook, Twitter)
 app.post('/api/download-video', async (req, res) => {
-  const { url, filename, quality = 'high' } = req.body;
+  const { url, filename, quality = 'high', sessionId } = req.body;
   
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
@@ -280,7 +330,9 @@ app.post('/api/download-video', async (req, res) => {
       '--output', outputTemplate,
       '--restrict-filenames', // Use safe filenames
       '--embed-metadata',
-      '--verbose'
+      '--verbose',
+      '--progress', // Enable progress output
+      '--newline' // Each progress line on new line
     ];
 
     // Platform-specific configurations
@@ -449,8 +501,48 @@ app.post('/api/download-video', async (req, res) => {
     });
     
     ytDlp.stderr.on('data', (data) => {
-      stderr += data.toString();
-      console.error(data.toString());
+      const output = data.toString();
+      stderr += output;
+      console.error(output);
+      
+      // Parse progress from yt-dlp output
+      if (sessionId) {
+        const lines = output.split('\n');
+        for (const line of lines) {
+          // Debug: Log ALL stderr lines to see what yt-dlp is actually outputting
+          if (line.trim()) {
+            console.log('🔍 DEBUG: yt-dlp stderr line:', JSON.stringify(line));
+          }
+          
+          // Debug: Log all lines that contain 'download' to see the actual format
+          if (line.includes('[download]')) {
+            console.log('🔍 DEBUG: yt-dlp download line:', JSON.stringify(line));
+          }
+          
+          // Look for download progress with multiple possible formats:
+          // [download]  45.2% of 123.45MiB at 1.23MiB/s ETA 00:30
+          // [download] 45.2% of ~123.45MiB at 1.23MiB/s ETA 00:30
+          // [download]   45.2% of 123.45MiB at  1.23MiB/s ETA 00:30
+          const progressMatch = line.match(/\[download\]\s*(\d+(?:\.\d+)?)%/) || 
+                               line.match(/\[download\].*?(\d+(?:\.\d+)?)%/);
+          if (progressMatch) {
+            const progress = parseFloat(progressMatch[1]);
+            console.log('📊 DEBUG: Progress parsed:', progress + '% from line:', JSON.stringify(line));
+            
+            // Extract additional details with more flexible patterns
+            const sizeMatch = line.match(/of\s*~?([\d.]+\w+)/) || line.match(/([\d.]+\w+)\s*total/);
+            const speedMatch = line.match(/at\s+([\d.]+\w+\/s)/) || line.match(/([\d.]+\w+\/s)/);
+            const etaMatch = line.match(/ETA\s+(\d+:\d+)/) || line.match(/eta\s+(\d+:\d+)/i);
+            
+            console.log('📡 DEBUG: Sending progress update via WebSocket');
+            sendProgressUpdate(sessionId, 'download', progress, {
+              size: sizeMatch ? sizeMatch[1] : null,
+              speed: speedMatch ? speedMatch[1] : null,
+              eta: etaMatch ? etaMatch[1] : null
+            });
+          }
+        }
+      }
     });
     
     ytDlp.on('close', (code) => {
@@ -694,8 +786,12 @@ app.post('/api/probe-audio', upload.single('video'), async (req, res) => {
     console.log(`[PROBE-AUDIO] Found ${audioStreams.length} audio streams`);
     
     if (audioStreams.length === 0) {
-      console.log(`[PROBE-AUDIO] No audio streams found`);
-      return res.json({ channels: [], hasAudio: false });
+      console.log(`[PROBE-AUDIO] No audio streams found - video-only file`);
+      return res.json({ 
+        channels: [], 
+        hasAudio: false,
+        message: 'This video file contains no audio streams. Video conversion will proceed without audio processing.'
+      });
     }
     
     // Handle MXF files with multiple mono streams by aggregating all channels
@@ -782,7 +878,7 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'video-convert-'));
   
   try {
-    const { format = 'mp4', quality = 'medium', leftChannel, rightChannel, resolution } = req.body;
+    const { format = 'mp4', quality = 'medium', leftChannel, rightChannel, resolution, sessionId } = req.body;
     
     // Validate that a file was uploaded
     if (!req.file) {
@@ -903,7 +999,9 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
         const streamCount = audioStreams.length;
         
         if (streamCount === 0) {
-          throw new Error('No audio streams found in input file');
+          console.log('No audio streams found - will process as video-only file');
+          // For video-only files, skip audio channel mapping
+          return;
         }
         
         console.log(`Debug: Found ${streamCount} audio streams`);
@@ -968,7 +1066,51 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
     if (!leftCh && !rightCh && !useStreamCopy) {
       // For basic conversion without channel mapping, explicitly map only main streams
       // This excludes attached pictures and other metadata streams
-      ffmpegArgs.push('-map', '0:v:0', '-map', '0:a:0?');
+      // Check if input has audio streams first
+      try {
+        const probeResult = spawn('ffprobe', [
+          '-v', 'quiet',
+          '-print_format', 'json',
+          '-show_streams',
+          '-select_streams', 'a',
+          inputPath
+        ]);
+        
+        let probeOutput = '';
+        probeResult.stdout.on('data', (data) => {
+          probeOutput += data.toString();
+        });
+        
+        await new Promise((resolve, reject) => {
+          probeResult.on('close', (code) => {
+            if (code === 0) {
+              try {
+                const probeData = JSON.parse(probeOutput);
+                const hasAudio = probeData.streams && probeData.streams.length > 0;
+                
+                if (hasAudio) {
+                  ffmpegArgs.push('-map', '0:v:0', '-map', '0:a:0?');
+                } else {
+                  console.log('No audio streams detected - processing as video-only');
+                  ffmpegArgs.push('-map', '0:v:0', '-an'); // -an excludes audio
+                }
+                resolve();
+              } catch (parseError) {
+                // Fallback to original mapping if probe fails
+                ffmpegArgs.push('-map', '0:v:0', '-map', '0:a:0?');
+                resolve();
+              }
+            } else {
+              // Fallback to original mapping if probe fails
+              ffmpegArgs.push('-map', '0:v:0', '-map', '0:a:0?');
+              resolve();
+            }
+          });
+        });
+      } catch (error) {
+        // Fallback to original mapping if probe fails
+        ffmpegArgs.push('-map', '0:v:0', '-map', '0:a:0?');
+      }
     }
     
     // Resolution scaling (skip for stream copy and audio-only formats)
@@ -1011,10 +1153,86 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
         ffmpegArgs.push('-c:v:0', 'libx264', '-c:a:0', 'aac', '-pix_fmt', 'yuv420p');
         break;
       case 'mp3':
-        ffmpegArgs.push('-vn', '-c:a', 'libmp3lame', '-b:a', '192k');
+        // Check if input has audio before attempting audio-only conversion
+        try {
+          const probeResult = spawn('ffprobe', [
+            '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_streams',
+            '-select_streams', 'a',
+            inputPath
+          ]);
+          
+          let probeOutput = '';
+          probeResult.stdout.on('data', (data) => {
+            probeOutput += data.toString();
+          });
+          
+          await new Promise((resolve, reject) => {
+            probeResult.on('close', (code) => {
+              if (code === 0) {
+                try {
+                  const probeData = JSON.parse(probeOutput);
+                  const hasAudio = probeData.streams && probeData.streams.length > 0;
+                  
+                  if (hasAudio) {
+                    ffmpegArgs.push('-vn', '-c:a', 'libmp3lame', '-b:a', '192k');
+                  } else {
+                    throw new Error('Cannot convert video-only file to MP3 format - no audio streams available');
+                  }
+                  resolve();
+                } catch (parseError) {
+                  reject(new Error('Cannot convert to MP3 - audio stream detection failed'));
+                }
+              } else {
+                reject(new Error('Cannot convert to MP3 - audio stream detection failed'));
+              }
+            });
+          });
+        } catch (error) {
+          throw error;
+        }
         break;
       case 'wav':
-        ffmpegArgs.push('-vn', '-c:a', 'pcm_s16le');
+        // Check if input has audio before attempting audio-only conversion
+        try {
+          const probeResult = spawn('ffprobe', [
+            '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_streams',
+            '-select_streams', 'a',
+            inputPath
+          ]);
+          
+          let probeOutput = '';
+          probeResult.stdout.on('data', (data) => {
+            probeOutput += data.toString();
+          });
+          
+          await new Promise((resolve, reject) => {
+            probeResult.on('close', (code) => {
+              if (code === 0) {
+                try {
+                  const probeData = JSON.parse(probeOutput);
+                  const hasAudio = probeData.streams && probeData.streams.length > 0;
+                  
+                  if (hasAudio) {
+                    ffmpegArgs.push('-vn', '-c:a', 'pcm_s16le');
+                  } else {
+                    throw new Error('Cannot convert video-only file to WAV format - no audio streams available');
+                  }
+                  resolve();
+                } catch (parseError) {
+                  reject(new Error('Cannot convert to WAV - audio stream detection failed'));
+                }
+              } else {
+                reject(new Error('Cannot convert to WAV - audio stream detection failed'));
+              }
+            });
+          });
+        } catch (error) {
+          throw error;
+        }
         break;
       default: // mp4
         if (useStreamCopy) {
@@ -1027,7 +1245,8 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
         }
     }
     
-    ffmpegArgs.push('-y', outputPath);
+    // Add progress tracking arguments
+    ffmpegArgs.push('-progress', 'pipe:2', '-y', outputPath);
     
     // Run ffmpeg conversion
     console.log(`Debug: Running FFmpeg with args: ${ffmpegArgs.join(' ')}`);
@@ -1036,6 +1255,7 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
     
     let conversionOutput = '';
     let conversionError = '';
+    let videoDuration = null;
     
     ffmpegProcess.stdout.on('data', (data) => {
       conversionOutput += data.toString();
@@ -1045,6 +1265,46 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
       const output = data.toString();
       conversionOutput += output;
       conversionError += output;
+      
+      // Parse FFmpeg progress for conversion tracking
+      if (sessionId) {
+        const lines = output.split('\n');
+        for (const line of lines) {
+          // Extract video duration from initial output
+          if (!videoDuration) {
+            const durationMatch = line.match(/Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})/);
+            if (durationMatch) {
+              const hours = parseInt(durationMatch[1]);
+              const minutes = parseInt(durationMatch[2]);
+              const seconds = parseFloat(durationMatch[3]);
+              videoDuration = hours * 3600 + minutes * 60 + seconds;
+            }
+          }
+          
+          // Parse progress from time= output
+          const timeMatch = line.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/);
+          if (timeMatch && videoDuration) {
+            const hours = parseInt(timeMatch[1]);
+            const minutes = parseInt(timeMatch[2]);
+            const seconds = parseFloat(timeMatch[3]);
+            const currentTime = hours * 3600 + minutes * 60 + seconds;
+            const progress = Math.min(100, (currentTime / videoDuration) * 100);
+            
+            // Extract additional details
+            const fpsMatch = line.match(/fps=\s*(\d+(?:\.\d+)?)/);
+            const speedMatch = line.match(/speed=\s*([\d.]+)x/);
+            const bitrateMatch = line.match(/bitrate=\s*([\d.]+\w+\/s)/);
+            
+            sendProgressUpdate(sessionId, 'conversion', progress, {
+              currentTime: `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(Math.floor(seconds)).padStart(2, '0')}`,
+              totalTime: `${String(Math.floor(videoDuration / 3600)).padStart(2, '0')}:${String(Math.floor((videoDuration % 3600) / 60)).padStart(2, '0')}:${String(Math.floor(videoDuration % 60)).padStart(2, '0')}`,
+              fps: fpsMatch ? parseFloat(fpsMatch[1]) : null,
+              speed: speedMatch ? speedMatch[1] + 'x' : null,
+              bitrate: bitrateMatch ? bitrateMatch[1] : null
+            });
+          }
+        }
+      }
     });
     
     await new Promise((resolve, reject) => {
@@ -1141,9 +1401,10 @@ app.get('*', (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Frontend available at: http://localhost:${PORT}`);
   console.log(`API available at: http://localhost:${PORT}/api`);
+  console.log(`WebSocket server available at: ws://localhost:${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });

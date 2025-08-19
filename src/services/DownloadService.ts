@@ -8,17 +8,93 @@ export interface QualityOption {
   description: string;
 }
 
+interface ProgressDetails {
+  size?: string;
+  speed?: string;
+  eta?: string;
+  currentTime?: string;
+  totalTime?: string;
+  fps?: number;
+  bitrate?: string;
+}
+
 interface DownloadRequest {
   url: string;
   filename: string;
   quality: string;
+  sessionId?: string;
 }
 
 export class DownloadService {
   private static activeDownloads = new Map<string, AbortController>();
+  private static ws: WebSocket | null = null;
+  private static progressCallbacks = new Map<string, (progress: number, details?: ProgressDetails) => void>();
+  private static sessionId: string = Math.random().toString(36).substring(2, 15);
+
+  static initWebSocket(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}`;
+    
+    this.ws = new WebSocket(wsUrl);
+    
+    this.ws.onopen = () => {
+      console.log('WebSocket connected for progress tracking');
+      // Register session with server
+      this.ws?.send(JSON.stringify({
+        type: 'register',
+        sessionId: this.sessionId
+      }));
+    };
+    
+    this.ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('📨 DownloadService: WebSocket message received', data);
+        
+        if (data.type === 'progress') {
+          console.log('📊 DownloadService: Checking for callback with operation:', data.operation);
+          const callback = this.progressCallbacks.get(data.operation);
+          if (callback) {
+            console.log('🔄 DownloadService: Progress callback invoked with progress:', data.progress);
+            callback(data.progress, data);
+          } else {
+            console.log('❌ DownloadService: No callback found for operation:', data.operation);
+          }
+        }
+      } catch (error) {
+        console.error('Error parsing WebSocket message:', error);
+      }
+    };
+    
+    this.ws.onclose = () => {
+      console.log('WebSocket disconnected');
+      this.ws = null;
+      // Attempt to reconnect after 3 seconds
+      setTimeout(() => this.initWebSocket(), 3000);
+    };
+    
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+  }
 
   static async downloadMedia(item: MediaItem, quality?: string, onProgress?: (progress: number) => void): Promise<void> {
+    console.log('📥 DownloadService: downloadMedia called', { filename: item.filename, quality, hasProgressCallback: !!onProgress });
+    
     const downloadId = item.url;
+    
+    // Initialize WebSocket if not already connected
+    this.initWebSocket();
+    
+    // Register progress callback for this download
+    if (onProgress) {
+      console.log('📊 DownloadService: Progress callback registered for download');
+      this.progressCallbacks.set('download', onProgress);
+    }
     
     // Create abort controller for this download
     const abortController = new AbortController();
@@ -38,6 +114,7 @@ export class DownloadService {
       throw new Error(`Failed to download ${item.filename}`);
     } finally {
       this.activeDownloads.delete(downloadId);
+      this.progressCallbacks.delete('download');
     }
   }
 
@@ -238,9 +315,12 @@ export class DownloadService {
           const requestBody: DownloadRequest = {
             url: item.url,
             filename: item.filename,
-            quality: quality
+            quality: quality,
+            sessionId: this.sessionId
           };
 
+          console.log('📡 DownloadService: Making fetch request to', API_ENDPOINTS.DOWNLOAD_VIDEO);
+          
           const response = await fetch(API_ENDPOINTS.DOWNLOAD_VIDEO, {
             method: 'POST',
             headers: {
@@ -249,6 +329,8 @@ export class DownloadService {
             body: JSON.stringify(requestBody),
             signal: combinedSignal
           });
+          
+          console.log('✅ DownloadService: Fetch response status:', response.status);
           
           clearTimeout(timeoutId);
           

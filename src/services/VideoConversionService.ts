@@ -6,6 +6,15 @@ export interface ConversionRequest {
   leftChannel?: number;
   rightChannel?: number;
   resolution?: string;
+  sessionId?: string;
+}
+
+interface ProgressDetails {
+  currentTime?: string;
+  totalTime?: string;
+  fps?: number;
+  speed?: string;
+  bitrate?: string;
 }
 
 export interface ConversionOptions {
@@ -23,6 +32,57 @@ export interface ConversionOptions {
 
 export class VideoConversionService {
   private static activeConversions = new Map<string, AbortController>();
+  private static ws: WebSocket | null = null;
+  private static progressCallbacks = new Map<string, (progress: number, details?: ProgressDetails) => void>();
+  private static sessionId: string = Math.random().toString(36).substring(2, 15);
+
+  static initWebSocket(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}`;
+    
+    this.ws = new WebSocket(wsUrl);
+    
+    this.ws.onopen = () => {
+      console.log('WebSocket connected for conversion progress tracking');
+      // Register session with server
+      this.ws?.send(JSON.stringify({
+        type: 'register',
+        sessionId: this.sessionId
+      }));
+    };
+    
+    this.ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('VideoConversionService: Received WebSocket message', data);
+        if (data.type === 'progress') {
+          const callback = this.progressCallbacks.get(data.operation);
+          console.log('VideoConversionService: Looking for callback for operation:', data.operation, 'Found:', !!callback);
+          if (callback) {
+            console.log('VideoConversionService: Calling progress callback with progress:', data.progress);
+            callback(data.progress, data);
+          }
+        }
+      } catch (error) {
+        console.error('Error parsing WebSocket message:', error);
+      }
+    };
+    
+    this.ws.onclose = () => {
+      console.log('WebSocket disconnected');
+      this.ws = null;
+      // Attempt to reconnect after 3 seconds
+      setTimeout(() => this.initWebSocket(), 3000);
+    };
+    
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+  }
 
   static getConversionOptions(): ConversionOptions {
     return {
@@ -52,11 +112,22 @@ export class VideoConversionService {
     rightChannel?: number,
     resolution?: string
   ): Promise<void> {
+    console.log('VideoConversionService: Starting conversion', { file: file.name, format, quality, sessionId: this.sessionId });
+    
     const conversionId = file.name;
     
     // Check if conversion is already active
     if (this.activeConversions.has(conversionId)) {
       throw new Error('Conversion already in progress for this item');
+    }
+
+    // Initialize WebSocket connection
+    this.initWebSocket();
+
+    // Register progress callback for this conversion
+    if (onProgress) {
+      console.log('VideoConversionService: Registering progress callback');
+      this.progressCallbacks.set('conversion', onProgress);
     }
 
     const abortController = new AbortController();
@@ -70,8 +141,11 @@ export class VideoConversionService {
       formData.append('format', format);
       formData.append('quality', quality);
       
+      // Add session ID for progress tracking
+      formData.append('sessionId', this.sessionId);
+      
       // Add channel selection if specified
-      if (leftChannel !== undefined && rightChannel !== undefined) {
+      if (leftChannel !== undefined && leftChannel !== null && rightChannel !== undefined && rightChannel !== null) {
         formData.append('leftChannel', leftChannel.toString());
         formData.append('rightChannel', rightChannel.toString());
       }
@@ -81,11 +155,13 @@ export class VideoConversionService {
         formData.append('resolution', resolution);
       }
 
+      console.log('VideoConversionService: Making fetch request to', API_ENDPOINTS.CONVERT_VIDEO);
       const response = await fetch(API_ENDPOINTS.CONVERT_VIDEO, {
         method: 'POST',
         body: formData,
         signal: abortController.signal,
       });
+      console.log('VideoConversionService: Fetch response status:', response.status);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
@@ -124,6 +200,8 @@ export class VideoConversionService {
       throw error;
     } finally {
       this.activeConversions.delete(conversionId);
+      // Unregister progress callback
+      this.progressCallbacks.delete('conversion');
     }
   }
 
