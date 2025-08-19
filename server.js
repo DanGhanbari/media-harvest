@@ -416,17 +416,28 @@ app.post('/api/download-video', async (req, res) => {
         '--no-playlist',
         '--no-abort-on-error',
         '--ignore-errors',
-        '--extractor-retries', '10',
-        '--fragment-retries', '10',
-        '--retry-sleep', 'linear=1::5',
+        '--extractor-retries', '15', // Increased for Railway
+        '--fragment-retries', '20', // Increased for fragment issues
+        '--retry-sleep', 'linear=2::10', // Longer retry delays
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        '--sleep-interval', '2',
-        '--max-sleep-interval', '10',
+        '--sleep-interval', '3', // Longer sleep for Railway
+        '--max-sleep-interval', '15',
         '--force-ipv4', // Force IPv4 to avoid some network issues
         '--no-check-certificate', // Skip certificate verification
         '--geo-bypass', // Try to bypass geo-restrictions
-        '--age-limit', '0' // No age limit restrictions
+        '--age-limit', '0', // No age limit restrictions
+        '--socket-timeout', '30', // Add socket timeout
+        '--http-chunk-size', '1048576' // 1MB chunks for better stability
       ];
+      
+      // Add Railway-specific optimizations
+      if (isProductionEnvironment()) {
+        ytDlpArgs.push(
+          '--concurrent-fragments', '1', // Reduce concurrent downloads
+          '--limit-rate', '10M', // Limit download rate to avoid throttling
+          '--throttled-rate', '100K' // Minimum rate before considering throttled
+        );
+      }
       
       // Try to use cookies for YouTube authentication if available
       if (process.env.YOUTUBE_COOKIES_FILE && fs.existsSync(process.env.YOUTUBE_COOKIES_FILE)) {
