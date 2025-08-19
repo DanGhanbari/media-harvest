@@ -35,6 +35,10 @@ export class VideoConversionService {
   private static ws: WebSocket | null = null;
   private static progressCallbacks = new Map<string, (progress: number, details?: ProgressDetails) => void>();
   private static sessionId: string = Math.random().toString(36).substring(2, 15);
+  
+  static {
+    console.log('🔧 CLIENT DEBUG: VideoConversionService sessionId generated:', this.sessionId);
+  }
 
   static initWebSocket(useSecure: boolean = true): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -51,12 +55,14 @@ export class VideoConversionService {
     this.ws = new WebSocket(wsUrl);
     
     this.ws.onopen = () => {
-      console.log('WebSocket connected for conversion progress tracking');
+      console.log('🔌 CLIENT DEBUG: WebSocket connected for conversion progress tracking');
       // Register session with server
-      this.ws?.send(JSON.stringify({
+      const registerMessage = {
         type: 'register',
         sessionId: this.sessionId
-      }));
+      };
+      console.log('🔌 CLIENT DEBUG: Sending registration message:', registerMessage);
+      this.ws?.send(JSON.stringify(registerMessage));
     };
     
     this.ws.onmessage = (event) => {
@@ -123,7 +129,7 @@ export class VideoConversionService {
     rightChannel?: number,
     resolution?: string
   ): Promise<void> {
-    console.log('VideoConversionService: Starting conversion', { file: file.name, format, quality, sessionId: this.sessionId });
+    console.log('🔧 CLIENT DEBUG: VideoConversionService: Starting conversion', { file: file.name, format, quality, sessionId: this.sessionId });
     
     const conversionId = file.name;
     
@@ -133,6 +139,7 @@ export class VideoConversionService {
     }
 
     // Initialize WebSocket connection
+    console.log('🔧 CLIENT DEBUG: Initializing WebSocket with sessionId:', this.sessionId);
     this.initWebSocket();
 
     // Register progress callback for this conversion
@@ -153,6 +160,7 @@ export class VideoConversionService {
       formData.append('quality', quality);
       
       // Add session ID for progress tracking
+      console.log('🔧 CLIENT DEBUG: Adding sessionId to FormData:', this.sessionId);
       formData.append('sessionId', this.sessionId);
       
       // Add channel selection if specified

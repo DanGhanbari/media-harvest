@@ -27,17 +27,19 @@ const wsConnections = new Map();
 
 // WebSocket connection handling
 wss.on('connection', (ws, req) => {
-  console.log('WebSocket client connected');
+  console.log('🔌 DEBUG: WebSocket client connected');
   
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
+      console.log('🔌 DEBUG: Received WebSocket message:', data);
       if (data.type === 'register' && data.sessionId) {
         wsConnections.set(data.sessionId, ws);
-        console.log(`WebSocket registered for session: ${data.sessionId}`);
+        console.log(`🔌 DEBUG: WebSocket registered for session: ${data.sessionId}`);
+        console.log(`🔌 DEBUG: Total registered sessions: ${wsConnections.size}`);
       }
     } catch (error) {
-      console.error('WebSocket message error:', error);
+      console.error('🔌 DEBUG: WebSocket message error:', error);
     }
   });
   
@@ -56,13 +58,22 @@ wss.on('connection', (ws, req) => {
 // Function to send progress updates via WebSocket
 function sendProgressUpdate(sessionId, type, progress, details = {}) {
   const ws = wsConnections.get(sessionId);
+  console.log(`📡 DEBUG: Attempting to send progress update for session: ${sessionId}`);
+  console.log(`📡 DEBUG: WebSocket found: ${!!ws}, ReadyState: ${ws?.readyState}`);
+  console.log(`📡 DEBUG: Total active connections: ${wsConnections.size}`);
+  
   if (ws && ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify({
+    const message = {
       type: 'progress',
       operation: type,
       progress: progress,
       ...details
-    }));
+    };
+    console.log(`📡 DEBUG: Sending WebSocket message:`, message);
+    ws.send(JSON.stringify(message));
+  } else {
+    console.log(`📡 DEBUG: Cannot send progress - WebSocket not available or not open`);
+    console.log(`📡 DEBUG: Available sessions:`, Array.from(wsConnections.keys()));
   }
 }
 
@@ -879,6 +890,9 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
   
   try {
     const { format = 'mp4', quality = 'medium', leftChannel, rightChannel, resolution, sessionId } = req.body;
+    
+    console.log('🎬 SERVER DEBUG: Conversion request received with sessionId:', sessionId);
+    console.log('🎬 SERVER DEBUG: Request body keys:', Object.keys(req.body));
     
     // Validate that a file was uploaded
     if (!req.file) {
