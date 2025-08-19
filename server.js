@@ -1014,9 +1014,8 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
         
         if (streamCount === 0) {
           console.log('No audio streams found - will process as video-only file');
-          // For video-only files, skip audio channel mapping
-          return;
-        }
+          // For video-only files, skip audio channel mapping and continue with conversion
+        } else {
         
         console.log(`Debug: Found ${streamCount} audio streams`);
         
@@ -1067,6 +1066,7 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
             );
           }
         }
+        } // Close the else block from the streamCount check
       } catch (channelError) {
         console.error('Audio channel mapping error:', channelError.message);
         throw new Error(`Audio channel mapping failed: ${channelError.message}`);
@@ -1075,9 +1075,9 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
     
     // Check if we should use stream copy for same format conversion
     // Disable stream copy if resolution scaling is requested
-    const useStreamCopy = req.file.originalname.toLowerCase().endsWith('.mp4') && format === 'mp4' && quality === 'medium' && !leftCh && !rightCh && (!resolution || resolution === 'original');
+    const useStreamCopy = req.file.originalname.toLowerCase().endsWith('.mp4') && format === 'mp4' && quality === 'medium' && (leftChannel === undefined && rightChannel === undefined) && (!resolution || resolution === 'original');
     
-    if (!leftCh && !rightCh && !useStreamCopy) {
+    if (leftChannel === undefined && rightChannel === undefined && !useStreamCopy) {
       // For basic conversion without channel mapping, explicitly map only main streams
       // This excludes attached pictures and other metadata streams
       // Check if input has audio streams first
