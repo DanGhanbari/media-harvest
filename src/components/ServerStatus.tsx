@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Server, Wifi, WifiOff, RefreshCw } from 'lucide-react';
-import { API_BASE_URL, API_ENDPOINTS } from '@/config/api';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Server, Wifi, WifiOff, RefreshCw, Settings } from 'lucide-react';
+import { API_BASE_URL, API_ENDPOINTS, BACKEND_SERVERS, switchBackendServer, getCurrentBackendServer } from '@/config/api';
 
 interface ServerHealth {
   status: string;
@@ -15,6 +16,7 @@ export const ServerStatus = () => {
   const [health, setHealth] = useState<ServerHealth | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
+  const [currentBackend, setCurrentBackend] = useState<keyof typeof BACKEND_SERVERS | null>(null);
 
   const checkServerHealth = async () => {
     setIsLoading(true);
@@ -34,13 +36,31 @@ export const ServerStatus = () => {
       setIsLoading(false);
     }
   };
-
-  useEffect(() => {
+useEffect(() => {
+    // Initialize current backend
+    setCurrentBackend(getCurrentBackendServer());
+    
+    // Initial health check
     checkServerHealth();
+    
     // Check health every 30 seconds
     const interval = setInterval(checkServerHealth, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleBackendSwitch = (server: keyof typeof BACKEND_SERVERS) => {
+    switchBackendServer(server);
+  };
+
+  const getBackendDisplayName = (server: keyof typeof BACKEND_SERVERS | null) => {
+     if (!server) return 'Default';
+     switch (server) {
+       case 'RAILWAY': return 'Railway';
+       case 'RENDER': return 'Render';
+       case 'LOCAL': return 'Local';
+       default: return server;
+     }
+   };
 
   const getServerType = () => {
     if (API_BASE_URL.includes('localhost') || API_BASE_URL.includes('127.0.0.1')) {
@@ -91,7 +111,7 @@ export const ServerStatus = () => {
       </PopoverTrigger>
       <PopoverContent className="w-80" align="end">
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-3">
             <h4 className="font-medium">Server Status</h4>
             <Button
               variant="ghost"
@@ -101,6 +121,31 @@ export const ServerStatus = () => {
             >
               <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             </Button>
+          </div>
+          
+          <div className="mb-4 p-3 bg-muted/50 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <Settings className="h-4 w-4" />
+              <span className="text-sm font-medium">Backend Server</span>
+            </div>
+            <Select
+              value={currentBackend || 'default'}
+              onValueChange={(value) => {
+                if (value !== 'default') {
+                  handleBackendSwitch(value as keyof typeof BACKEND_SERVERS);
+                }
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select backend server" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Default ({getBackendDisplayName(currentBackend)})</SelectItem>
+                <SelectItem value="RAILWAY">Railway</SelectItem>
+                <SelectItem value="RENDER">Render</SelectItem>
+                <SelectItem value="LOCAL">Local</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           
           <div className="space-y-2">
