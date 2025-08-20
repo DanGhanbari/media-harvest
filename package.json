@@ -17,6 +17,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "npm run build:dev && node server.js",
+    "start:render": "npm run build:prod && node server.js",
     "deploy:setup": "./deploy.sh",
     "deploy:build": "npm run build:prod",
     "deploy:check": "npm run lint && npm run build:prod"

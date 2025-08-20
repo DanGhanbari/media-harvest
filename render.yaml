@@ -1,0 +1,35 @@
+# Render deployment configuration
+services:
+  - type: web
+    name: media-harvest-backend
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        fromService:
+          type: web
+          name: media-harvest-backend
+          property: port
+    # Auto-deploy from GitHub
+    autoDeploy: true
+    # Build settings
+    buildFilter:
+      paths:
+        - server.js
+        - package.json
+        - package-lock.json
+        - nixpacks.toml
+        - src/**
+        - dist/**
+    # Runtime settings
+    disk:
+      name: media-harvest-storage
+      mountPath: /tmp
+      sizeGB: 1
+    # Environment-specific settings
+    region: oregon
