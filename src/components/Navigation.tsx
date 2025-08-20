@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Download, RefreshCw } from 'lucide-react';
+import { ServerStatus } from './ServerStatus';
 
 export const Navigation = () => {
   const location = useLocation();
@@ -36,6 +37,8 @@ export const Navigation = () => {
                 <span>Converter</span>
               </Link>
             </Button>
+            
+            <ServerStatus />
           </div>
         </div>
       </div>
