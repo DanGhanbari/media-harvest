@@ -37,11 +37,16 @@ PORT=10000
 
 **Optional Environment Variables:**
 ```
+# CORS Configuration (if you need to restrict origins)
+# ALLOWED_ORIGINS=https://your-frontend-domain.com,https://another-domain.com
+
 # Add any custom environment variables your app needs
 # Example:
 # API_KEY=your_api_key_here
 # DATABASE_URL=your_database_url_here
 ```
+
+**Note about CORS:** The backend automatically detects and allows common deployment domains (.onrender.com, .vercel.app, .railway.app). You only need to set `ALLOWED_ORIGINS` if you want to restrict access to specific domains.
 
 ### 4. Advanced Settings
 

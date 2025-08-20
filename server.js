@@ -94,6 +94,22 @@ const corsOptions = {
           'http://localhost:3002'
         ];
     
+    // Add common deployment domains if not explicitly set
+    if (!process.env.ALLOWED_ORIGINS) {
+      // Add Railway domains
+      if (process.env.RAILWAY_PROJECT_ID) {
+        allowedOrigins.push(`https://${process.env.RAILWAY_PROJECT_ID}.railway.app`);
+      }
+      // Add Render domains (auto-detect from request origin if it's a .onrender.com domain)
+      if (origin && origin.includes('.onrender.com')) {
+        allowedOrigins.push(origin);
+      }
+      // Add Vercel domains
+      if (origin && origin.includes('.vercel.app')) {
+        allowedOrigins.push(origin);
+      }
+    }
+    
     // In development, allow all origins
     if (process.env.NODE_ENV !== 'production') {
       return callback(null, true);
