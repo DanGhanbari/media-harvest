@@ -45,7 +45,7 @@ export const ServerStatus = () => {
   const getServerType = () => {
     if (API_BASE_URL.includes('localhost') || API_BASE_URL.includes('127.0.0.1')) {
       return 'Local';
-    } else if (API_BASE_URL.includes('render.com')) {
+    } else if (API_BASE_URL.includes('onrender.com')) {
       return 'Render';
     } else if (API_BASE_URL.includes('railway.app')) {
       return 'Railway';
