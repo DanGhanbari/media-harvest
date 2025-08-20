@@ -130,8 +130,10 @@ const corsOptions = {
 // Middleware
 app.use(cors(corsOptions));
 
-// Serve static files from the React build directory
-app.use(express.static(path.join(__dirname, 'dist')));
+// Serve static files from the dist directory (only if not backend-only mode)
+if (process.env.BACKEND_ONLY !== 'true') {
+  app.use(express.static(path.join(__dirname, 'dist')));
+}
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -1428,8 +1430,9 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
 
 // Serve frontend for all other GET routes (not API routes)
 app.get('*', (req, res) => {
-  // Only serve frontend for HTML routes (not API, assets, or other static files)
-  if (!req.path.startsWith('/api/') && 
+  // Only serve frontend for HTML routes when not in backend-only mode
+  if (process.env.BACKEND_ONLY !== 'true' && 
+      !req.path.startsWith('/api/') && 
       !req.path.startsWith('/assets/') && 
       !req.path.includes('.') && 
       req.accepts('html')) {
@@ -1444,8 +1447,12 @@ app.get('*', (req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Frontend available at: http://localhost:${PORT}`);
-  console.log(`API available at: http://localhost:${PORT}/api`);
+  if (process.env.BACKEND_ONLY === 'true') {
+    console.log(`Backend-only mode: API available at: http://localhost:${PORT}/api`);
+  } else {
+    console.log(`Frontend available at: http://localhost:${PORT}`);
+    console.log(`API available at: http://localhost:${PORT}/api`);
+  }
   console.log(`WebSocket server available at: ws://localhost:${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
