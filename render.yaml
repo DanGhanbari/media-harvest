@@ -4,8 +4,8 @@ services:
     name: media-harvest-backend
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build
-    startCommand: node server.js
+    buildCommand: npm ci
+    startCommand: npm run start:render
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV

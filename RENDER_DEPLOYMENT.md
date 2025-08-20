@@ -22,9 +22,11 @@ This guide will help you deploy the Media Harvest backend to Render as an altern
 **Basic Settings:**
 - **Name:** `media-harvest-backend`
 - **Runtime:** `Node`
-- **Build Command:** `npm ci && npm run build`
-- **Start Command:** `node server.js`
+- **Build Command:** `npm ci`
+- **Start Command:** `npm run start:render`
 - **Plan:** `Free` (or upgrade as needed)
+
+**Important:** The `start:render` script automatically builds the frontend assets in production mode and starts the server. This ensures that static files (CSS, JS) are properly generated and served.
 
 ### 3. Environment Variables
 
@@ -92,22 +94,28 @@ PORT=10000
 
 ### Common Issues
 
-1. **Build Failures:**
+1. **CSS/Static Files Not Loading (MIME Type Errors):**
+   - **Symptom:** Browser shows "Refused to apply style... MIME type ('text/html') is not a supported stylesheet MIME type"
+   - **Cause:** Frontend assets not built properly or server serving HTML instead of CSS/JS files
+   - **Solution:** Ensure you're using `npm run start:render` as the start command, which builds production assets first
+   - **Verification:** Check that `/assets/` URLs return actual CSS/JS content, not HTML error pages
+
+2. **Build Failures:**
    - Check that all dependencies are in `package.json`
    - Verify Node.js version compatibility
    - Review build logs for specific errors
 
-2. **yt-dlp Issues:**
+3. **yt-dlp Issues:**
    - Render automatically installs Python and pip
    - The app will install yt-dlp during startup
    - Check logs for yt-dlp installation errors
 
-3. **Memory Issues:**
+4. **Memory Issues:**
    - Free tier has 512MB RAM limit
    - Consider upgrading to paid plan for better performance
    - Monitor memory usage in logs
 
-4. **Timeout Issues:**
+5. **Timeout Issues:**
    - Render has request timeout limits
    - Large file downloads may need optimization
    - Consider implementing download queuing
