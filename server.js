@@ -88,8 +88,10 @@ const corsOptions = {
       ? process.env.ALLOWED_ORIGINS.split(',').map(url => url.trim())
       : [
           'http://localhost:3000',
+          'http://localhost:3001', // Local development server
           'http://localhost:5173', // Vite dev server
           'http://127.0.0.1:3000',
+          'http://127.0.0.1:3001',
           'http://127.0.0.1:5173',
           'http://localhost:3002'
         ];
