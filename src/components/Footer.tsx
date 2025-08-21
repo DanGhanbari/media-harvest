@@ -1,9 +1,10 @@
 import React from 'react';
 import { Github } from 'lucide-react';
+import packageJson from '../../package.json';
 
 const Footer: React.FC = () => {
   const currentYear = new Date().getFullYear();
-  const version = '1.0.0'; // This should match package.json version
+  const version = packageJson.version;
 
   return (
     <footer className="bg-background border-t border-border mt-auto">
