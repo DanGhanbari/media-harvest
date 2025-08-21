@@ -51,6 +51,8 @@ export const API_BASE_URL = getApiBaseUrl();
 export const API_ENDPOINTS = {
   QUALITY_OPTIONS: `${API_BASE_URL}/api/quality-options`,
   DOWNLOAD_VIDEO: `${API_BASE_URL}/api/download-video`,
+  DOWNLOAD_DIRECT: `${API_BASE_URL}/api/download-direct`,
+  DOWNLOAD_BLOB: `${API_BASE_URL}/api/download-blob`,
   CONVERT_VIDEO: `${API_BASE_URL}/api/convert-video`,
   CANCEL_DOWNLOAD: `${API_BASE_URL}/api/cancel-download`,
   HEALTH: `${API_BASE_URL}/api/health`,

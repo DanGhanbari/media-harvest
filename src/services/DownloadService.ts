@@ -187,39 +187,63 @@ export class DownloadService {
 
   private static async downloadDirectMedia(item: MediaItem, signal?: AbortSignal): Promise<void> {
     try {
-      // Use CORS proxy for cross-origin downloads
-      // Downloading from URL
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(item.url)}`;
-      const response = await fetch(proxyUrl, { signal });
+      console.log('📡 DownloadService: Downloading direct media via backend API');
       
-      // Response received
+      const response = await fetch(API_ENDPOINTS.DOWNLOAD_DIRECT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          url: item.url,
+          filename: item.filename
+        }),
+        signal
+      });
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(`Backend download failed: ${errorData.error || response.statusText}`);
       }
       
+      // Get the file as a blob and save it
       const blob = await response.blob();
-      // Downloaded blob received
       saveAs(blob, item.filename);
+      
     } catch (error) {
-      // Fallback: try direct download (might fail due to CORS)
-      try {
-        const response = await fetch(item.url, { mode: 'no-cors', signal });
-        const blob = await response.blob();
-        saveAs(blob, item.filename);
-      } catch (fallbackError) {
-        // Last resort: create a download link
-        this.createDownloadLink(item.url, item.filename);
-      }
+      console.error('Direct media download failed:', error);
+      // Last resort: create a download link
+      this.createDownloadLink(item.url, item.filename);
     }
   }
 
   private static async downloadBlobVideo(item: MediaItem): Promise<void> {
     try {
-      // For blob URLs, we need to fetch the blob data directly
+      // For blob URLs, we need to handle them client-side since they're browser-specific
+      // First try to check with backend (will return helpful error message)
+      console.log('📡 DownloadService: Checking blob download with backend');
+      
+      const backendResponse = await fetch(API_ENDPOINTS.DOWNLOAD_BLOB, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          url: item.url,
+          filename: item.filename
+        })
+      });
+      
+      if (!backendResponse.ok) {
+        // Backend confirms blob URLs must be handled client-side
+        console.log('📱 DownloadService: Handling blob URL client-side as expected');
+      }
+      
+      // Handle blob URL directly in the browser
       const response = await fetch(item.url);
       const blob = await response.blob();
       saveAs(blob, item.filename);
+      
     } catch (error) {
       console.error('Failed to download blob video:', error);
       throw error;

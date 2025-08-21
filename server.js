@@ -768,6 +768,67 @@ app.post('/api/download-video', async (req, res) => {
   }
 });
 
+// Download direct media (images, videos, etc.) with CORS proxy
+app.post('/api/download-direct', async (req, res) => {
+  const { url, filename } = req.body;
+  
+  if (!url || !filename) {
+    return res.status(400).json({ error: 'URL and filename are required' });
+  }
+
+  try {
+    // Try direct download first
+    let response;
+    try {
+      response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+      });
+    } catch (error) {
+      // If direct download fails, try CORS proxy
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+      response = await fetch(proxyUrl);
+    }
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    // Set appropriate headers for file download
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    
+    // Stream the response to client
+    response.body.pipe(res);
+    
+  } catch (error) {
+    console.error('Direct download error:', error);
+    res.status(500).json({ 
+      error: 'Failed to download file',
+      details: error.message 
+    });
+  }
+});
+
+// Download blob video (for blob URLs)
+app.post('/api/download-blob', async (req, res) => {
+  const { url, filename } = req.body;
+  
+  if (!url || !filename) {
+    return res.status(400).json({ error: 'URL and filename are required' });
+  }
+
+  // For blob URLs, we can't download them server-side since they're client-side only
+  // Return an error with instructions
+  res.status(400).json({ 
+    error: 'Blob URLs cannot be downloaded server-side',
+    details: 'Blob URLs are client-side only and must be handled in the browser',
+    suggestion: 'This type of media should be downloaded directly in the browser'
+  });
+});
+
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
   const ytDlpAvailable = await checkYtDlp();
