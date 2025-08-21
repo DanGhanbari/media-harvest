@@ -21,7 +21,17 @@ export const ServerStatus = () => {
   const checkServerHealth = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(API_ENDPOINTS.HEALTH);
+      // Get the current backend URL dynamically
+      const selectedBackend = getCurrentBackendServer();
+      let healthUrl;
+      
+      if (selectedBackend && BACKEND_SERVERS[selectedBackend]) {
+        healthUrl = `${BACKEND_SERVERS[selectedBackend]}/api/health`;
+      } else {
+        healthUrl = API_ENDPOINTS.HEALTH;
+      }
+      
+      const response = await fetch(healthUrl);
       if (response.ok) {
         const data = await response.json();
         setHealth(data);
@@ -48,6 +58,13 @@ useEffect(() => {
     return () => clearInterval(interval);
   }, []);
 
+  // Re-check health when backend changes
+  useEffect(() => {
+    if (currentBackend !== null) {
+      checkServerHealth();
+    }
+  }, [currentBackend]);
+
   const handleBackendSwitch = (server: keyof typeof BACKEND_SERVERS) => {
     switchBackendServer(server);
   };
@@ -63,15 +80,17 @@ useEffect(() => {
    };
 
   const getServerType = () => {
-    if (API_BASE_URL.includes('localhost') || API_BASE_URL.includes('127.0.0.1')) {
+    const currentUrl = currentBackend && BACKEND_SERVERS[currentBackend] ? BACKEND_SERVERS[currentBackend] : API_BASE_URL;
+    
+    if (currentUrl.includes('localhost') || currentUrl.includes('127.0.0.1')) {
       return 'Local';
-    } else if (API_BASE_URL.includes('onrender.com')) {
+    } else if (currentUrl.includes('onrender.com')) {
       return 'Render';
-    } else if (API_BASE_URL.includes('railway.app')) {
+    } else if (currentUrl.includes('railway.app')) {
       return 'Railway';
-    } else if (API_BASE_URL.includes('vercel.app')) {
+    } else if (currentUrl.includes('vercel.app')) {
       return 'Vercel';
-    } else if (API_BASE_URL === window.location.origin) {
+    } else if (currentUrl === window.location.origin) {
       return 'Same Origin';
     } else {
       return 'Remote';
@@ -152,7 +171,7 @@ useEffect(() => {
             <div className="flex justify-between items-center">
               <span className="text-sm text-muted-foreground">Backend URL:</span>
               <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                {API_BASE_URL}
+                {currentBackend && BACKEND_SERVERS[currentBackend] ? BACKEND_SERVERS[currentBackend] : API_BASE_URL}
               </code>
             </div>
             
