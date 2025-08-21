@@ -107,6 +107,9 @@ const corsOptions = {
       if (origin && origin.includes('.vercel.app')) {
         allowedOrigins.push(origin);
       }
+      
+      // Explicitly add known Vercel domain
+      allowedOrigins.push('https://media-harvest.vercel.app');
     }
     
     // In development, allow all origins
