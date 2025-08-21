@@ -249,7 +249,7 @@ app.get('/api/version', (req, res) => {
 app.get('/api/quality-options', (req, res) => {
   res.json({
     options: [
-      { value: 'maximum', label: 'Maximum Quality (4K/1440p/1080p+)', description: 'Best available quality up to 4K' },
+      { value: 'maximum', label: 'Best Quality', description: 'Best available quality up to 4K' },
       { value: 'high', label: 'High Quality (1080p)', description: 'Full HD 1080p maximum' },
       { value: 'medium', label: 'Medium Quality (720p)', description: 'HD 720p maximum' },
       { value: 'low', label: 'Low Quality (480p)', description: 'SD 480p maximum' },
