@@ -3,7 +3,7 @@
 
 // Available backend servers
 export const BACKEND_SERVERS = {
-  RAILWAY: 'https://media-harvest-production.up.railway.app',
+  RAILWAY: 'https://media-tools-production.up.railway.app',
   LOCAL: 'http://localhost:3001'
 } as const;
 

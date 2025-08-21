@@ -17,7 +17,7 @@ git push origin main
 2. Click **"New Project"** → **"Deploy from GitHub repo"**
 3. Select your repository
 4. Railway auto-detects Node.js and deploys automatically
-5. **Copy your Railway URL** (e.g., `https://media-harvest-production.railway.app`)
+5. **Copy your Railway URL** (e.g., `https://media-tools-production.up.railway.app`)
 
 ### 3. Deploy Frontend to Vercel
 1. Go to [vercel.com](https://vercel.com) and login with GitHub
