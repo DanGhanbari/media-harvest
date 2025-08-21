@@ -104,11 +104,12 @@ PORT=10000
    - Check that all dependencies are in `package.json`
    - Verify Node.js version compatibility
    - Review build logs for specific errors
-
-3. **yt-dlp Issues:**
-   - Render automatically installs Python and pip
-   - The app will install yt-dlp during startup
+### 3. yt-dlp Issues:
+   - **FIXED**: The app now automatically installs yt-dlp on Render during startup
+   - Python and pip are installed during the build process
+   - yt-dlp is installed at runtime using `pip3 install --user yt-dlp`
    - Check logs for yt-dlp installation errors
+   - If installation fails, the server will still start but downloads won't work
 
 4. **Memory Issues:**
    - Free tier has 512MB RAM limit

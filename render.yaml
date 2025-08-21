@@ -4,13 +4,22 @@ services:
     name: media-harvest-backend
     runtime: node
     plan: free
-    buildCommand: npm ci
+    buildCommand: |
+      # Install Python and pip if not available
+      if ! command -v python3 &> /dev/null; then
+        echo "Installing Python..."
+        apt-get update && apt-get install -y python3 python3-pip
+      fi
+      # Install Node.js dependencies
+      npm ci
     startCommand: node server.js
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
       - key: BACKEND_ONLY
+        value: "true"
+      - key: RENDER
         value: "true"
       - key: PORT
         fromService:

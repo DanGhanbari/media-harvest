@@ -1526,14 +1526,78 @@ app.get('*', (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-  if (process.env.BACKEND_ONLY === 'true') {
-    console.log(`Backend-only mode: API available at: http://localhost:${PORT}/api`);
-  } else {
-    console.log(`Frontend available at: http://localhost:${PORT}`);
-    console.log(`API available at: http://localhost:${PORT}/api`);
+// Function to install yt-dlp on Render if not available
+async function ensureYtDlpInstalled() {
+  const isRender = process.env.RENDER || process.env.RENDER_SERVICE_ID;
+  
+  if (!isRender) {
+    return; // Only run on Render
   }
-  console.log(`WebSocket server available at: ws://localhost:${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-});
+  
+  console.log('🔍 Checking yt-dlp availability on Render...');
+  const ytDlpAvailable = await checkYtDlp();
+  
+  if (!ytDlpAvailable) {
+    console.log('📦 Installing yt-dlp on Render...');
+    return new Promise((resolve, reject) => {
+      const installProcess = spawn('pip3', ['install', '--user', 'yt-dlp'], {
+        stdio: 'inherit'
+      });
+      
+      installProcess.on('close', (code) => {
+        if (code === 0) {
+          console.log('✅ yt-dlp installed successfully on Render');
+          resolve();
+        } else {
+          console.error('❌ Failed to install yt-dlp on Render');
+          reject(new Error(`yt-dlp installation failed with code ${code}`));
+        }
+      });
+      
+      installProcess.on('error', (error) => {
+        console.error('❌ Error installing yt-dlp on Render:', error);
+        reject(error);
+      });
+    });
+  } else {
+    console.log('✅ yt-dlp is already available');
+  }
+}
+
+// Start server with yt-dlp installation check
+async function startServer() {
+  try {
+    // Install yt-dlp on Render if needed
+    await ensureYtDlpInstalled();
+    
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on port ${PORT}`);
+      if (process.env.BACKEND_ONLY === 'true') {
+        console.log(`Backend-only mode: API available at: http://localhost:${PORT}/api`);
+      } else {
+        console.log(`Frontend available at: http://localhost:${PORT}`);
+        console.log(`API available at: http://localhost:${PORT}/api`);
+      }
+      console.log(`WebSocket server available at: ws://localhost:${PORT}`);
+      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    console.log('⚠️  Starting server without yt-dlp (downloads may not work)');
+    
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on port ${PORT} (yt-dlp unavailable)`);
+      if (process.env.BACKEND_ONLY === 'true') {
+        console.log(`Backend-only mode: API available at: http://localhost:${PORT}/api`);
+      } else {
+        console.log(`Frontend available at: http://localhost:${PORT}`);
+        console.log(`API available at: http://localhost:${PORT}/api`);
+      }
+      console.log(`WebSocket server available at: ws://localhost:${PORT}`);
+      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    });
+  }
+}
+
+// Start the server
+startServer();
