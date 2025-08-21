@@ -358,11 +358,16 @@ export class DownloadService {
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
             
-            // Handle authentication errors for Instagram/Facebook with helpful messages
-            if (response.status === 403 && errorData.platform && (errorData.platform === 'instagram' || errorData.platform === 'facebook')) {
-              const errorMessage = errorData.isProduction 
-                ? `🚫 ${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`
-                : `${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`;
+            // Handle authentication errors for Instagram/Facebook/YouTube with helpful messages
+            if (response.status === 403 && errorData.platform) {
+              let errorMessage = '';
+              if (errorData.platform === 'youtube') {
+                errorMessage = `🚫 ${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`;
+              } else if (errorData.platform === 'instagram' || errorData.platform === 'facebook') {
+                errorMessage = errorData.isProduction 
+                  ? `🚫 ${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`
+                  : `${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`;
+              }
               throw new Error(errorMessage);
             }
             

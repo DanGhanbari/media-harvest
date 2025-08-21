@@ -723,9 +723,27 @@ app.post('/api/download-video', async (req, res) => {
         }
       } else {
         fs.rmSync(tempDir, { recursive: true, force: true });
+        
+        // Handle YouTube authentication issues specifically
+        const errorOutput = (stderr || stdout || '').toLowerCase();
+        if (platform === 'youtube' && (errorOutput.includes('login_required') || 
+            errorOutput.includes('sign in to confirm') || 
+            errorOutput.includes('cookies-from-browser') ||
+            errorOutput.includes('authentication'))) {
+          return res.status(403).json({ 
+            error: 'YouTube authentication required',
+            details: 'YouTube is blocking downloads from this server due to anti-bot measures. This is a common issue on production hosting platforms.',
+            platform: 'youtube',
+            isProduction: isProductionEnvironment(),
+            suggestion: 'Try using the local server for YouTube downloads, or try alternative platforms like TikTok, Twitter, or Instagram which work more reliably on production servers.',
+            technicalDetails: stderr || stdout
+          });
+        }
+        
         res.status(500).json({ 
           error: `yt-dlp failed with code ${code}`,
-          details: stderr || stdout
+          details: stderr || stdout,
+          platform: platform
         });
       }
     });
