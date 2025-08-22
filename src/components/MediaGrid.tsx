@@ -297,41 +297,35 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
 
                 {/* Actions */}
                 <div className="flex gap-3 pt-2">
-                  <Button
-                    onClick={() => handleDownload(item)}
-                    disabled={isDownloading}
-                    variant={isDownloaded ? "secondary" : "default"}
-                    size="sm"
-                    className={`${isDownloading ? 'flex-1' : 'flex-1'} transition-all duration-300 hover:scale-105 shadow-md hover:shadow-lg font-semibold`}
-                  >
-                    {isDownloading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Downloading...
-                      </>
-                    ) : isDownloaded ? (
-                         <>
-                           <Check className="w-4 h-4" />
-                           Downloaded
-                         </>
-                       ) : (
+                  {/* Download/Cancel Button - replaces itself during download */}
+                  {isDownloading ? (
+                    <Button
+                      onClick={() => handleCancelDownload(item)}
+                      variant="destructive"
+                      size="sm"
+                      className="flex-1 transition-all duration-300 hover:scale-105 shadow-md hover:shadow-lg font-semibold"
+                    >
+                      <X className="w-4 h-4" />
+                      Cancel
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => handleDownload(item)}
+                      variant={isDownloaded ? "secondary" : "default"}
+                      size="sm"
+                      className="flex-1 transition-all duration-300 hover:scale-105 shadow-md hover:shadow-lg font-semibold"
+                    >
+                      {isDownloaded ? (
+                        <>
+                          <Check className="w-4 h-4" />
+                          Downloaded
+                        </>
+                      ) : (
                         <>
                           <Download className="w-4 h-4" />
                           Download
                         </>
                       )}
-                  </Button>
-                  
-                  {/* Cancel Button - only show when downloading */}
-                  {isDownloading && (
-                    <Button
-                      onClick={() => handleCancelDownload(item)}
-                      variant="destructive"
-                      size="sm"
-                      className="transition-all duration-300 hover:scale-105 shadow-md hover:shadow-lg"
-                      title="Cancel Download"
-                    >
-                      <X className="w-4 h-4" />
                     </Button>
                   )}
                   
