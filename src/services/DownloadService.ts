@@ -281,15 +281,26 @@ export class DownloadService {
 
   static async getVideoInfo(url: string): Promise<{ title: string; duration: number; uploader: string; thumbnail?: string } | null> {
     try {
+      // Add a client-side timeout as well (50 seconds to allow for server timeout)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 50000);
+      
       const response = await fetch(API_ENDPOINTS.VIDEO_INFO, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url })
+        body: JSON.stringify({ url }),
+        signal: controller.signal
       });
       
+      clearTimeout(timeoutId);
+      
       if (!response.ok) {
+        if (response.status === 408) {
+          console.warn('Video analysis timed out - video may be too large or network too slow');
+          return null;
+        }
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
@@ -301,6 +312,10 @@ export class DownloadService {
         thumbnail: data.thumbnail
       };
     } catch (error) {
+      if (error.name === 'AbortError') {
+        console.warn('Video analysis request was aborted due to timeout');
+        return null;
+      }
       console.error('Failed to fetch video info:', error);
       return null;
     }

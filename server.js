@@ -1450,12 +1450,28 @@ app.post('/api/video-info', async (req, res) => {
       '--dump-json',
       '--no-playlist',
       '--no-warnings',
+      '--socket-timeout', '30',
+      '--extractor-retries', '1',
       url
     ];
 
     const ytDlp = spawn('yt-dlp', ytDlpArgs);
     let stdout = '';
     let stderr = '';
+    let isResolved = false;
+
+    // Set a timeout for the entire operation (45 seconds)
+    const timeout = setTimeout(() => {
+      if (!isResolved) {
+        console.log('Video info request timed out, killing yt-dlp process');
+        ytDlp.kill('SIGKILL');
+        isResolved = true;
+        res.status(408).json({ 
+          error: 'Request timeout - video analysis took too long',
+          details: 'The video analysis process exceeded the time limit. This may happen with very large videos or slow network connections.'
+        });
+      }
+    }, 45000); // 45 second timeout
 
     ytDlp.stdout.on('data', (data) => {
       stdout += data.toString();
@@ -1466,6 +1482,13 @@ app.post('/api/video-info', async (req, res) => {
     });
 
     ytDlp.on('close', (code) => {
+      if (isResolved) {
+        return; // Already handled by timeout
+      }
+      
+      clearTimeout(timeout);
+      isResolved = true;
+      
       if (code === 0 && stdout.trim()) {
         try {
           const videoInfo = JSON.parse(stdout.trim());
@@ -1516,6 +1539,13 @@ app.post('/api/video-info', async (req, res) => {
     });
 
     ytDlp.on('error', (error) => {
+      if (isResolved) {
+        return; // Already handled by timeout
+      }
+      
+      clearTimeout(timeout);
+      isResolved = true;
+      
       console.error('yt-dlp process error:', error);
       res.status(500).json({ 
         error: 'Failed to start yt-dlp process',
