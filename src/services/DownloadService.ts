@@ -23,6 +23,8 @@ interface DownloadRequest {
   filename: string;
   quality: string;
   sessionId?: string;
+  startTime?: string | number;
+  endTime?: string | number;
 }
 
 export class DownloadService {
@@ -103,7 +105,7 @@ export class DownloadService {
     };
   }
 
-  static async downloadMedia(item: MediaItem, quality?: string, onProgress?: (progress: number) => void): Promise<void> {
+  static async downloadMedia(item: MediaItem, quality?: string, onProgress?: (progress: number) => void, startTime?: string | number, endTime?: string | number): Promise<void> {
     console.log('📥 DownloadService: downloadMedia called', { filename: item.filename, quality, hasProgressCallback: !!onProgress });
     
     const downloadId = item.url;
@@ -126,7 +128,7 @@ export class DownloadService {
     if (item.type === 'video' && item.url.includes('blob:')) {
       await this.downloadBlobVideo(item);
     } else if (this.isSupportedPlatform(item.url)) {
-      await this.downloadEmbeddedVideo(item, quality, abortController.signal, onProgress);
+      await this.downloadEmbeddedVideo(item, quality, abortController.signal, onProgress, startTime, endTime);
     } else {
       await this.downloadDirectMedia(item, abortController.signal);
     }
@@ -178,10 +180,38 @@ export class DownloadService {
       console.error('Failed to get quality options:', error);
       // Return default options if API fails
       return [
+        { value: 'maximum', label: 'Best Quality', description: 'Best available quality up to 4K' },
         { value: 'high', label: 'High Quality (1080p)', description: 'Full HD 1080p maximum' },
         { value: 'medium', label: 'Medium Quality (720p)', description: 'HD 720p maximum' },
         { value: 'low', label: 'Low Quality (480p)', description: 'SD 480p maximum' }
       ];
+    }
+  }
+
+  static async getVideoInfo(url: string): Promise<{ title: string; duration: number; uploader: string; thumbnail?: string } | null> {
+    try {
+      const response = await fetch(API_ENDPOINTS.VIDEO_INFO, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      return {
+        title: data.title || 'Unknown Title',
+        duration: data.duration || 0,
+        uploader: data.uploader || 'Unknown',
+        thumbnail: data.thumbnail
+      };
+    } catch (error) {
+      console.error('Failed to fetch video info:', error);
+      return null;
     }
   }
 
@@ -250,13 +280,13 @@ export class DownloadService {
     }
   }
 
-  private static async downloadEmbeddedVideo(item: MediaItem, quality?: string, signal?: AbortSignal, onProgress?: (progress: number) => void): Promise<void> {
+  private static async downloadEmbeddedVideo(item: MediaItem, quality?: string, signal?: AbortSignal, onProgress?: (progress: number) => void, startTime?: string | number, endTime?: string | number): Promise<void> {
     // Downloading video from supported platform
     
     // Handle all supported platforms using the unified backend
     if (this.isSupportedPlatform(item.url)) {
       try {
-        await this.downloadFromPlatform(item, quality, signal, onProgress);
+        await this.downloadFromPlatform(item, quality, signal, onProgress, startTime, endTime);
         return;
       } catch (error) {
         console.error('Platform download failed:', error);
@@ -295,6 +325,28 @@ export class DownloadService {
     ];
     
     return supportedPlatforms.some(platform => url.toLowerCase().includes(platform));
+  }
+
+  static isYouTubeUrl(url: string): boolean {
+    return url.includes('youtube.com') || url.includes('youtu.be');
+  }
+
+  static async checkIfLongVideo(url: string): Promise<{ isLong: boolean; duration: number; videoInfo?: { title: string; duration: number; uploader: string; thumbnail?: string } }> {
+    if (!this.isYouTubeUrl(url)) {
+      return { isLong: false, duration: 0 };
+    }
+
+    const videoInfo = await this.getVideoInfo(url);
+    if (!videoInfo) {
+      return { isLong: false, duration: 0 };
+    }
+
+    const isLong = videoInfo.duration > 960; // 16 minutes = 960 seconds
+    return {
+      isLong,
+      duration: videoInfo.duration,
+      videoInfo
+    };
   }
   
   private static getPlatformName(url: string): string {
@@ -335,7 +387,7 @@ export class DownloadService {
     }
   }
   
-  private static async downloadFromPlatform(item: MediaItem, quality: string = 'high', signal?: AbortSignal, onProgress?: (progress: number) => void): Promise<void> {
+  private static async downloadFromPlatform(item: MediaItem, quality: string = 'maximum', signal?: AbortSignal, onProgress?: (progress: number) => void, startTime?: string | number, endTime?: string | number): Promise<void> {
     const downloadServices = [
       // Service 1: Try local yt-dlp backend (most reliable)
       async () => {
@@ -361,7 +413,9 @@ export class DownloadService {
             url: item.url,
             filename: item.filename,
             quality: quality,
-            sessionId: this.sessionId
+            sessionId: this.sessionId,
+            ...(startTime !== undefined && { startTime }),
+            ...(endTime !== undefined && { endTime })
           };
 
           console.log('📡 DownloadService: Making fetch request to', API_ENDPOINTS.DOWNLOAD_VIDEO);

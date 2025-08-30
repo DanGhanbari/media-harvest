@@ -5,9 +5,11 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/components/ui/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Download, ExternalLink, Image, Video, Music, FileImage, Check, Loader2, Settings, X } from 'lucide-react';
+import { Download, ExternalLink, Image, Video, Music, FileImage, Check, Loader2, Settings, X, Clock } from 'lucide-react';
 import { MediaItem } from '@/services/MediaDetectionService';
 import { DownloadService, QualityOption } from '@/services/DownloadService';
+import TimeRangeSelector from './TimeRangeSelector';
+import { formatTime } from '@/utils/timeUtils';
 
 interface MediaGridProps {
   items: MediaItem[];
@@ -20,12 +22,52 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
   const [qualityOptions, setQualityOptions] = useState<QualityOption[]>([]);
   const [selectedQuality, setSelectedQuality] = useState<Record<string, string>>({});
   const [showQualitySelector, setShowQualitySelector] = useState<Record<string, boolean>>({});
+  const [showTimeSelector, setShowTimeSelector] = useState<string | null>(null);
+  const [videoInfo, setVideoInfo] = useState<{ title: string; duration: number; uploader: string; thumbnail?: string } | null>(null);
+  const [inlineVideoInfo, setInlineVideoInfo] = useState<Record<string, { title: string; duration: number; uploader: string; thumbnail?: string }>>({});
+  const [showInlineTimeSelector, setShowInlineTimeSelector] = useState<Record<string, boolean>>({});
+  const [selectedTimeRanges, setSelectedTimeRanges] = useState<Record<string, { start: number; end: number }>>({});
   const { toast } = useToast();
 
   useEffect(() => {
     // Load quality options on component mount
     DownloadService.getQualityOptions().then(setQualityOptions);
   }, []);
+
+  // Handle video analysis when Analyze button is clicked
+  const handleAnalyzeVideo = async (item: MediaItem) => {
+    if (!isVideoItem(item) || !item.url.includes('youtube.com')) return;
+    
+    try {
+      const info = await DownloadService.getVideoInfo(item.url);
+      const isLong = await DownloadService.checkIfLongVideo(item.url);
+      
+      setInlineVideoInfo(prev => ({
+        ...prev,
+        [item.url]: info
+      }));
+      
+      if (isLong) {
+        setShowInlineTimeSelector(prev => ({
+          ...prev,
+          [item.url]: true
+        }));
+        
+        // Set default time range to full video
+        setSelectedTimeRanges(prev => ({
+          ...prev,
+          [item.url]: { start: 0, end: info.duration }
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to get video info:', error);
+      toast({
+        title: "Analysis Failed",
+        description: "Could not analyze video. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -52,12 +94,41 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
            item.url.includes('vimeo.com');
   };
 
-  const handleDownload = async (item: MediaItem) => {
+  const handleDownload = async (item: MediaItem, startTime?: number, endTime?: number) => {
     const itemId = item.url;
     
     if (downloadingItems.has(itemId)) {
       return;
     }
+
+    // For long videos with inline time selector, use selected time range
+    if (isVideoItem(item) && showInlineTimeSelector[item.url] && !startTime && !endTime) {
+      const timeRange = selectedTimeRanges[item.url];
+      if (timeRange) {
+        startTime = timeRange.start;
+        endTime = timeRange.end;
+      }
+    }
+
+    // Modal time selector is disabled - using inline version in MediaDownloader instead
+    // if (DownloadService.isYouTubeUrl(item.url) && !startTime && !endTime && !showInlineTimeSelector[item.url]) {
+    //   try {
+    //     console.log('🔍 Checking if video is long:', item.url);
+    //     const longVideoCheck = await DownloadService.checkIfLongVideo(item.url);
+    //     console.log('📊 Video check result:', longVideoCheck);
+    //     if (longVideoCheck.isLong && longVideoCheck.videoInfo) {
+    //       console.log('⏰ Showing time selector for long video');
+    //       setVideoInfo(longVideoCheck.videoInfo);
+    //       setShowTimeSelector(itemId);
+    //       return;
+    //     } else {
+    //       console.log('⚡ Video is short, proceeding with normal download');
+    //     }
+    //   } catch (error) {
+    //     console.error('Failed to check video duration:', error);
+    //     // Continue with normal download if duration check fails
+    //   }
+    // }
     
     // Remove from downloaded items to allow re-downloading with different quality
     if (downloadedItems.has(itemId)) {
@@ -72,12 +143,12 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
     setDownloadProgress(prev => ({ ...prev, [itemId]: 0 }));
 
     try {
-      const quality = selectedQuality[itemId] || 'high';
+      const quality = selectedQuality[itemId] || 'maximum';
       
-      // Use the download service with progress callback
+      // Use the download service with progress callback and time range if provided
       await DownloadService.downloadMedia(item, quality, (progress) => {
         setDownloadProgress(prev => ({ ...prev, [itemId]: progress }));
-      });
+      }, startTime, endTime);
       
       setDownloadProgress(prev => ({ ...prev, [itemId]: 100 }));
       
@@ -95,9 +166,10 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
         });
       }, 500);
 
+      const timeRangeText = startTime && endTime ? ` (${formatTime(startTime)} - ${formatTime(endTime)})` : '';
       toast({
         title: "Download Complete",
-        description: `${item.filename} has been downloaded successfully`,
+        description: `${item.filename}${timeRangeText} has been downloaded successfully`,
       });
     } catch (error) {
       setDownloadingItems(prev => {
@@ -141,6 +213,11 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
       delete newProgress[itemId];
       return newProgress;
     });
+    
+    toast({
+      title: "Download Cancelled",
+      description: `Download of ${item.filename} was cancelled`,
+    });
   };
 
   const handleDownloadAll = async () => {
@@ -169,6 +246,21 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
     }
   };
 
+  // Check if any video has been analyzed and is long
+  const hasLongVideo = items.some(item => 
+    isVideoItem(item) && 
+    item.url.includes('youtube.com') && 
+    inlineVideoInfo[item.url] && 
+    showInlineTimeSelector[item.url]
+  );
+
+  const longVideoItem = items.find(item => 
+    isVideoItem(item) && 
+    item.url.includes('youtube.com') && 
+    inlineVideoInfo[item.url] && 
+    showInlineTimeSelector[item.url]
+  );
+
   return (
     <div className="space-y-6">
       {/* Download All Button */}
@@ -184,6 +276,8 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
           Download All ({items.length})
         </Button>
       </div>
+
+
 
       {/* Media Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 p-2">
@@ -265,7 +359,7 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
                        Quality Settings:
                      </label>
                     <Select
-                      value={selectedQuality[item.url] || 'high'}
+                      value={selectedQuality[item.url] || 'maximum'}
                       onValueChange={(value) => {
                         setSelectedQuality(prev => ({ ...prev, [item.url]: value }));
                         // Reset downloaded state when quality changes to show original button UI
@@ -292,6 +386,36 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                )}
+
+                {/* Analyze Button for YouTube Videos */}
+                {isVideoItem(item) && item.url.includes('youtube.com') && !inlineVideoInfo[item.url] && (
+                  <div className="space-y-3">
+                    <Button
+                      onClick={() => handleAnalyzeVideo(item)}
+                      variant="outline"
+                      size="sm"
+                      className="w-full transition-all duration-300 hover:scale-105 shadow-md hover:shadow-lg hover:bg-blue-50 hover:border-blue-300 dark:hover:bg-blue-950/20 dark:hover:border-blue-600"
+                    >
+                      <Clock className="w-4 h-4 mr-2" />
+                      Analyze Video
+                    </Button>
+                  </div>
+                )}
+
+                {/* Video Duration Display */}
+                {isVideoItem(item) && inlineVideoInfo[item.url] && (
+                  <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 rounded-lg border border-blue-200/50 dark:border-blue-800/30 backdrop-blur-sm">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-blue-700 dark:text-blue-300">
+                      <Clock className="w-4 h-4" />
+                      Video Duration: {formatTime(inlineVideoInfo[item.url].duration)}
+                    </div>
+                    {showInlineTimeSelector[item.url] && (
+                      <div className="text-xs text-muted-foreground mt-2">
+                        Time range selector available above
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -361,6 +485,26 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
           );
         })}
       </div>
+
+      {/* Time Range Selector Modal */}
+      {showTimeSelector && videoInfo && (
+        <TimeRangeSelector
+          videoDuration={videoInfo.duration}
+          videoTitle={videoInfo.title}
+          onTimeRangeChange={(startTime, endTime) => {
+            const item = items.find(item => item.url === showTimeSelector);
+            if (item) {
+              handleDownload(item, startTime, endTime);
+            }
+            setShowTimeSelector(null);
+            setVideoInfo(null);
+          }}
+          onCancel={() => {
+            setShowTimeSelector(null);
+            setVideoInfo(null);
+          }}
+        />
+      )}
     </div>
   );
 };

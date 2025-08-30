@@ -39,6 +39,7 @@ export const API_ENDPOINTS = {
   CANCEL_DOWNLOAD: `${API_BASE_URL}/api/cancel-download`,
   HEALTH: `${API_BASE_URL}/api/health`,
   PROBE_AUDIO: `${API_BASE_URL}/api/probe-audio`,
+  VIDEO_INFO: `${API_BASE_URL}/api/video-info`,
 } as const;
 
 // Helper function to create API URLs
