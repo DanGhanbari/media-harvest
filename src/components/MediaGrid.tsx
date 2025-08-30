@@ -97,9 +97,21 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
   const handleDownload = async (item: MediaItem, startTime?: number, endTime?: number) => {
     const itemId = item.url;
     
+    // Prevent multiple downloads of the same item - single guard clause
     if (downloadingItems.has(itemId)) {
+      console.log('🚫 MediaGrid: Download already in progress for:', itemId);
       return;
     }
+    
+    // Immediately add to downloading state to prevent race conditions from rapid clicks
+    setDownloadingItems(prev => {
+      if (prev.has(itemId)) {
+        console.log('🚫 MediaGrid: Race condition detected - download already started for:', itemId);
+        return prev; // Return unchanged state if already downloading
+      }
+      console.log('✅ MediaGrid: Starting download for:', itemId);
+      return new Set(prev).add(itemId);
+    });
 
     // For long videos with inline time selector, use selected time range
     if (isVideoItem(item) && showInlineTimeSelector[item.url] && !startTime && !endTime) {
@@ -110,26 +122,6 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
       }
     }
 
-    // Modal time selector is disabled - using inline version in MediaDownloader instead
-    // if (DownloadService.isYouTubeUrl(item.url) && !startTime && !endTime && !showInlineTimeSelector[item.url]) {
-    //   try {
-    //     console.log('🔍 Checking if video is long:', item.url);
-    //     const longVideoCheck = await DownloadService.checkIfLongVideo(item.url);
-    //     console.log('📊 Video check result:', longVideoCheck);
-    //     if (longVideoCheck.isLong && longVideoCheck.videoInfo) {
-    //       console.log('⏰ Showing time selector for long video');
-    //       setVideoInfo(longVideoCheck.videoInfo);
-    //       setShowTimeSelector(itemId);
-    //       return;
-    //     } else {
-    //       console.log('⚡ Video is short, proceeding with normal download');
-    //     }
-    //   } catch (error) {
-    //     console.error('Failed to check video duration:', error);
-    //     // Continue with normal download if duration check fails
-    //   }
-    // }
-    
     // Remove from downloaded items to allow re-downloading with different quality
     if (downloadedItems.has(itemId)) {
       setDownloadedItems(prev => {
@@ -139,7 +131,7 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
       });
     }
 
-    setDownloadingItems(prev => new Set(prev).add(itemId));
+    // Initialize progress (downloading state already set above)
     setDownloadProgress(prev => ({ ...prev, [itemId]: 0 }));
 
     try {
@@ -147,7 +139,13 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
       
       // Use the download service with progress callback and time range if provided
       await DownloadService.downloadMedia(item, quality, (progress) => {
-        setDownloadProgress(prev => ({ ...prev, [itemId]: progress }));
+        console.log('🔄 MediaGrid: Progress update received:', progress, 'for item:', itemId);
+        console.log('🔄 MediaGrid: Current downloadProgress state before update:', downloadProgress);
+        setDownloadProgress(prev => {
+          const newProgress = { ...prev, [itemId]: progress };
+          console.log('🔄 MediaGrid: Setting new downloadProgress state:', newProgress);
+          return newProgress;
+        });
       }, startTime, endTime);
       
       setDownloadProgress(prev => ({ ...prev, [itemId]: 100 }));

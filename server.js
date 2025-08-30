@@ -49,6 +49,15 @@ wss.on('connection', (ws, req) => {
       if (connection === ws) {
         wsConnections.delete(sessionId);
         console.log(`WebSocket disconnected for session: ${sessionId}`);
+        
+        // Clean up any active downloads for this session
+        for (const [downloadUrl, downloadInfo] of activeDownloads.entries()) {
+          if (downloadInfo.sessionId === sessionId) {
+            console.log(`🧹 Cleaning up download for disconnected session: ${sessionId}, URL: ${downloadUrl}`);
+            // Don't terminate the download, just remove the session association
+            downloadInfo.sessionId = null;
+          }
+        }
         break;
       }
     }
@@ -57,6 +66,12 @@ wss.on('connection', (ws, req) => {
 
 // Function to send progress updates via WebSocket
 function sendProgressUpdate(sessionId, type, progress, details = {}) {
+  // Skip if sessionId is null (session was disconnected)
+  if (!sessionId) {
+    console.log(`📡 SERVER DEBUG: Skipping progress update - session was disconnected`);
+    return;
+  }
+  
   const ws = wsConnections.get(sessionId);
   console.log(`📡 SERVER DEBUG: Attempting to send progress update for session: ${sessionId}`);
   console.log(`📡 SERVER DEBUG: WebSocket found: ${!!ws}, ReadyState: ${ws?.readyState}`);
@@ -597,10 +612,103 @@ app.post('/api/download-video', async (req, res) => {
     console.log('🎬 SERVER DEBUG: Process PID:', ytDlp.pid);
     
     // Register this download in the active downloads map
-    activeDownloads.set(url, { ytDlp, tempDir, cleanup });
+    activeDownloads.set(url, { ytDlp, tempDir, cleanup, sessionId });
     
     let stderr = '';
     let stdout = '';
+    let progressSent = false;
+    
+    // Unified progress tracking for multi-stage downloads
+    let downloadStage = 'initializing'; // 'initializing', 'video', 'audio', 'merging', 'complete'
+    let stageProgress = {}; // Track progress for each stage
+    let lastUnifiedProgress = 0;
+    
+    // Stage weight mapping for unified progress calculation
+    // Each stage represents the range it covers in the total progress
+    const stageRanges = {
+      initializing: { start: 0, end: 5 },      // 0-5%
+      video: { start: 5, end: 55 },            // 5-55%
+      audio: { start: 55, end: 80 },           // 55-80%
+      merging: { start: 80, end: 95 },         // 80-95%
+      postprocessing: { start: 95, end: 100 }  // 95-100%
+    };
+    
+    const calculateUnifiedProgress = () => {
+      // Calculate progress based on all completed stages plus current stage
+      let totalProgress = 0;
+      
+      // Add progress from all completed stages
+      for (const [stageName, progress] of Object.entries(stageProgress)) {
+        const range = stageRanges[stageName];
+        if (!range) continue;
+        
+        if (stageName === downloadStage) {
+          // Current stage: interpolate within its range
+          const rangeSize = range.end - range.start;
+          totalProgress = range.start + (progress / 100) * rangeSize;
+        } else if (progress >= 100) {
+          // Completed stage: use its full range
+          totalProgress = Math.max(totalProgress, range.end);
+        }
+      }
+      
+      // Round to whole number (no decimal places)
+       totalProgress = Math.round(totalProgress);
+      
+      // Ensure progress stays within bounds and never goes backwards
+      totalProgress = Math.min(100, Math.max(lastUnifiedProgress || 0, totalProgress));
+      lastUnifiedProgress = totalProgress;
+      
+      return totalProgress;
+    };
+    
+    const sendUnifiedProgress = (stage, rawProgress, details = {}) => {
+      // Ensure rawProgress is a valid number and within bounds
+      const validProgress = Math.max(0, Math.min(100, parseFloat(rawProgress) || 0));
+      
+      // When transitioning to a new stage, preserve completed stages
+      if (stage !== downloadStage) {
+        // Mark the previous stage as completed if it exists
+        if (downloadStage && stageProgress[downloadStage] !== undefined) {
+          stageProgress[downloadStage] = 100;
+        }
+        downloadStage = stage; // Update current stage
+        // Initialize new stage progress if not exists
+        if (stageProgress[stage] === undefined) {
+          stageProgress[stage] = 0;
+        }
+      }
+      
+      // Update only the current stage progress
+      const currentStageProgress = stageProgress[stage] || 0;
+      stageProgress[stage] = validProgress;
+      
+      const unifiedProgress = calculateUnifiedProgress();
+      
+      console.log(`📊 DEBUG: Stage '${stage}' progress: ${validProgress}% (was: ${currentStageProgress}%) -> Unified: ${unifiedProgress}%`);
+      console.log(`📊 DEBUG: Stage progress state:`, JSON.stringify(stageProgress));
+      
+      if (sessionId) {
+        const operationKey = `download_${url}`;
+        sendProgressUpdate(sessionId, operationKey, unifiedProgress, {
+          ...details,
+          stage: stage,
+          stageProgress: validProgress,
+          allStages: stageProgress
+        });
+      }
+    };
+    
+    // Disable progress simulation - rely only on real yt-dlp progress
+    // The simulation was interfering with real progress updates
+    console.log('📊 DEBUG: Progress simulation disabled - using real yt-dlp progress only');
+    
+    // Send initial progress to show download has started
+    if (sessionId) {
+      sendUnifiedProgress('initializing', 0, { message: 'Starting download...' });
+    }
+    
+    // Progress simulation removed - no cleanup needed
     
     // Periodically check if client is still connected
     const connectionCheck = setInterval(() => {
@@ -616,7 +724,88 @@ app.post('/api/download-video', async (req, res) => {
     };
     
     ytDlp.stdout.on('data', (data) => {
-      stdout += data.toString();
+      const output = data.toString();
+      stdout += output;
+      console.log('🔍 DEBUG: yt-dlp stdout line:', JSON.stringify(output));
+      
+      // Parse progress from stdout as well
+      if (sessionId) {
+        const lines = output.split('\n');
+        for (const line of lines) {
+          if (line.trim()) {
+            console.log('🔍 DEBUG: yt-dlp stdout line:', JSON.stringify(line));
+          }
+          
+          // Look for download progress in stdout with improved patterns
+          const progressMatch = line.match(/\[download\]\s*(\d+(?:\.\d+)?)%/) || 
+                               line.match(/\[download\].*?(\d+(?:\.\d+)?)%/) ||
+                               line.match(/(\d+(?:\.\d+)?)%\s*of\s*~?[\d.]+\w+/) ||
+                               line.match(/\s+(\d+(?:\.\d+)?)%\s+of\s+/) ||
+                               line.match(/\s+(\d+(?:\.\d+)?)%\s+at\s+/) ||
+                               line.match(/^\s*(\d+(?:\.\d+)?)%/);
+          if (progressMatch) {
+             const progress = parseFloat(progressMatch[1]);
+             console.log('📊 DEBUG: Progress parsed from stdout:', progress + '% from line:', JSON.stringify(line));
+             progressSent = true; // Mark that real progress was detected
+             
+             // Detect download stage from the line content with improved logic
+             let stage = downloadStage; // Use current stage as default
+             
+             // Start with video stage when we first see download progress
+             if (downloadStage === 'initializing' && progress > 0) {
+               stage = 'video';
+               downloadStage = 'video';
+               console.log('📊 DEBUG: Transitioning from initializing to video stage');
+             }
+             // Audio detection - look for audio format indicators
+             else if ((line.includes('format 140') || line.includes('m4a') || line.includes('audio only')) && 
+                      line.includes('[download]') && progress > 0) {
+               if (downloadStage !== 'audio') {
+                 stage = 'audio';
+                 downloadStage = 'audio';
+                 console.log('📊 DEBUG: Transitioning to audio stage');
+               }
+             }
+             // Video detection - look for video format indicators  
+             else if ((line.includes('format 137') || line.includes('format 136') || 
+                      line.includes('format 135') || line.includes('mp4') || line.includes('webm') ||
+                      line.includes('video only')) && 
+                      line.includes('[download]') && progress > 0) {
+               if (downloadStage !== 'video' && downloadStage === 'initializing') {
+                 stage = 'video';
+                 downloadStage = 'video';
+                 console.log('📊 DEBUG: Transitioning to video stage');
+               }
+             }
+             // Merging stage detection
+             else if (line.includes('Merging formats into') || 
+                      line.includes('[Merger]') ||
+                      line.includes('Merging') ||
+                      (line.includes('ffmpeg') && (line.includes('Merging') || line.includes('-c copy')))) {
+               if (downloadStage !== 'merging') {
+                 stage = 'merging';
+                 downloadStage = 'merging';
+                 console.log('📊 DEBUG: Transitioning to merging stage');
+                 // Start merging with some initial progress
+                 if (progress === 100) {
+                   progress = 10;
+                 }
+               }
+             }
+             
+             // Extract additional details
+             const sizeMatch = line.match(/of\s*~?([\d.]+\w+)/) || line.match(/([\d.]+\w+)\s*total/);
+             const speedMatch = line.match(/at\s+([\d.]+\w+\/s)/) || line.match(/([\d.]+\w+\/s)/);
+             const etaMatch = line.match(/ETA\s+(\d+:\d+)/) || line.match(/eta\s+(\d+:\d+)/i);
+             
+             sendUnifiedProgress(stage, progress, {
+               size: sizeMatch ? sizeMatch[1] : null,
+               speed: speedMatch ? speedMatch[1] : null,
+               eta: etaMatch ? etaMatch[1] : null
+             });
+           }
+        }
+      }
     });
     
     ytDlp.stderr.on('data', (data) => {
@@ -642,19 +831,70 @@ app.post('/api/download-video', async (req, res) => {
           // [download]  45.2% of 123.45MiB at 1.23MiB/s ETA 00:30
           // [download] 45.2% of ~123.45MiB at 1.23MiB/s ETA 00:30
           // [download]   45.2% of 123.45MiB at  1.23MiB/s ETA 00:30
+          // Also look for any percentage pattern in case format changed
           const progressMatch = line.match(/\[download\]\s*(\d+(?:\.\d+)?)%/) || 
-                               line.match(/\[download\].*?(\d+(?:\.\d+)?)%/);
+                               line.match(/\[download\].*?(\d+(?:\.\d+)?)%/) ||
+                               line.match(/(\d+(?:\.\d+)?)%\s*of\s*~?[\d.]+\w+/) ||
+                               line.match(/\s+(\d+(?:\.\d+)?)%\s+of\s+/) ||
+                               line.match(/\s+(\d+(?:\.\d+)?)%\s+at\s+/) ||
+                               line.match(/^\s*(\d+(?:\.\d+)?)%/);
           if (progressMatch) {
             const progress = parseFloat(progressMatch[1]);
-            console.log('📊 DEBUG: Progress parsed:', progress + '% from line:', JSON.stringify(line));
+            console.log('📊 DEBUG: Progress parsed from stderr:', progress + '% from line:', JSON.stringify(line));
+            progressSent = true; // Mark that real progress was detected
+            
+            // Detect download stage from the line content with improved logic
+            let stage = downloadStage; // Use current stage as default
+            
+            // Start with video stage when we first see download progress
+            if (downloadStage === 'initializing' && progress > 0) {
+              stage = 'video';
+              downloadStage = 'video';
+              console.log('📊 DEBUG: Transitioning from initializing to video stage (stderr)');
+            }
+            // Audio detection - look for audio format indicators
+            else if ((line.includes('format 140') || line.includes('m4a') || line.includes('audio only')) && 
+                     line.includes('[download]') && progress > 0) {
+              if (downloadStage !== 'audio') {
+                stage = 'audio';
+                downloadStage = 'audio';
+                console.log('📊 DEBUG: Transitioning to audio stage (stderr)');
+              }
+            }
+            // Video detection - look for video format indicators  
+            else if ((line.includes('format 137') || line.includes('format 136') || 
+                     line.includes('format 135') || line.includes('mp4') || line.includes('webm') ||
+                     line.includes('video only')) && 
+                     line.includes('[download]') && progress > 0) {
+              if (downloadStage !== 'video' && downloadStage === 'initializing') {
+                stage = 'video';
+                downloadStage = 'video';
+                console.log('📊 DEBUG: Transitioning to video stage (stderr)');
+              }
+            }
+            // Merging stage detection
+            else if (line.includes('Merging formats into') || 
+                     line.includes('[Merger]') ||
+                     line.includes('Merging') ||
+                     (line.includes('ffmpeg') && (line.includes('Merging') || line.includes('-c copy')))) {
+              if (downloadStage !== 'merging') {
+                stage = 'merging';
+                downloadStage = 'merging';
+                console.log('📊 DEBUG: Transitioning to merging stage (stderr)');
+                // Start merging with some initial progress
+                if (progress === 100) {
+                  progress = 10;
+                }
+              }
+            }
             
             // Extract additional details with more flexible patterns
             const sizeMatch = line.match(/of\s*~?([\d.]+\w+)/) || line.match(/([\d.]+\w+)\s*total/);
             const speedMatch = line.match(/at\s+([\d.]+\w+\/s)/) || line.match(/([\d.]+\w+\/s)/);
             const etaMatch = line.match(/ETA\s+(\d+:\d+)/) || line.match(/eta\s+(\d+:\d+)/i);
             
-            console.log('📡 DEBUG: Sending progress update via WebSocket');
-            sendProgressUpdate(sessionId, 'download', progress, {
+            console.log('📡 DEBUG: Sending unified progress update via WebSocket');
+            sendUnifiedProgress(stage, progress, {
               size: sizeMatch ? sizeMatch[1] : null,
               speed: speedMatch ? speedMatch[1] : null,
               eta: etaMatch ? etaMatch[1] : null
@@ -666,6 +906,7 @@ app.post('/api/download-video', async (req, res) => {
     
     ytDlp.on('close', async (code) => {
       clearConnectionCheck();
+      // Progress simulation removed - no cleanup needed
       
       // Handle Instagram/Facebook authentication failures with helpful error messages
       if (code !== 0 && (platform === 'instagram' || platform === 'facebook')) {
@@ -700,6 +941,26 @@ app.post('/api/download-video', async (req, res) => {
       }
       
       if (code === 0) {
+        // Send gradual merging progress updates before completion
+        if (sessionId) {
+          console.log('✅ Download completed successfully - sending gradual merging progress');
+          console.log('📊 DEBUG: Current merging progress before gradual updates:', stageProgress.merging);
+          // Send intermediate merging progress to avoid sudden jumps
+          if (!stageProgress.merging || stageProgress.merging < 50) {
+            console.log('📊 DEBUG: Sending merging progress 50%');
+            sendUnifiedProgress('merging', 50, { stage: 'Processing downloaded files' });
+            await new Promise(resolve => setTimeout(resolve, 300)); // Small delay for smooth progress
+          }
+          if (!stageProgress.merging || stageProgress.merging < 80) {
+            console.log('📊 DEBUG: Sending merging progress 80%');
+            sendUnifiedProgress('merging', 80, { stage: 'Finalizing merge' });
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+          console.log('📊 DEBUG: Sending merging progress 100%');
+          sendUnifiedProgress('merging', 100, { stage: 'Merge completed' });
+          await new Promise(resolve => setTimeout(resolve, 200)); // Brief pause before post-processing
+        }
+        
         // Find the downloaded files (handle carousel posts with multiple files)
         let files = fs.readdirSync(tempDir).filter(file => 
           // Filter out info.json files and thumbnails, keep media files
@@ -708,6 +969,10 @@ app.post('/api/download-video', async (req, res) => {
         );
         
         if (files.length > 0) {
+          // Always start post-processing stage to ensure progress doesn't reach 100% prematurely
+          console.log('🔄 Starting post-processing stage...');
+          sendUnifiedProgress('postprocessing', 10, { stage: 'Post-processing files' });
+          
           // Handle segment trimming if needed
           console.log('🔍 Checking segment trimming:', { segmentInfo, filesCount: files.length });
           if (segmentInfo) {
@@ -803,11 +1068,33 @@ app.post('/api/download-video', async (req, res) => {
                     const ffmpeg = spawn('ffmpeg', args);
                     
                     let ffmpegStderr = '';
+                    let duration = null;
                     
                     ffmpeg.stderr.on('data', (data) => {
                       const stderrLine = data.toString();
                       ffmpegStderr += stderrLine;
                       console.log('🔍 FFmpeg stderr:', stderrLine.trim());
+                      
+                      // Parse duration from FFmpeg output
+                      const durationMatch = stderrLine.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+                      if (durationMatch && !duration) {
+                        const hours = parseInt(durationMatch[1]);
+                        const minutes = parseInt(durationMatch[2]);
+                        const seconds = parseInt(durationMatch[3]);
+                        duration = hours * 3600 + minutes * 60 + seconds;
+                        console.log('📏 FFmpeg detected duration:', duration, 'seconds');
+                      }
+                      
+                      // Parse progress from FFmpeg output
+                      const timeMatch = stderrLine.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+                      if (timeMatch && duration) {
+                        const hours = parseInt(timeMatch[1]);
+                        const minutes = parseInt(timeMatch[2]);
+                        const seconds = parseInt(timeMatch[3]);
+                        const currentTime = hours * 3600 + minutes * 60 + seconds;
+                        const progress = Math.min(Math.round((currentTime / duration) * 80) + 10, 90); // 10-90% range
+                        sendUnifiedProgress('postprocessing', progress, { stage: 'FFmpeg processing', currentTime, duration });
+                      }
                     });
                     
                     ffmpeg.stdout.on('data', (data) => {
@@ -830,6 +1117,10 @@ app.post('/api/download-video', async (req, res) => {
                     });
                   });
                 };
+                
+                // Start post-processing stage
+                console.log('🔄 Starting post-processing (trimming)...');
+                sendUnifiedProgress('postprocessing', 10, { stage: 'Starting FFmpeg trimming' });
                 
                 // Use only stream copying to preserve original quality exactly
                 let ffmpegSuccess = false;
@@ -877,12 +1168,19 @@ app.post('/api/download-video', async (req, res) => {
                   }
                   
                   console.log('✅ FFmpeg trimming completed successfully');
+                  
+                  // FFmpeg trimming completed, but don't mark as 100% yet - wait for file serving
+                  sendUnifiedProgress('postprocessing', 90, { stage: 'FFmpeg trimming completed, preparing file' });
                 }
               } catch (error) {
                 console.error('FFmpeg trimming failed:', error);
                 // Continue with original file if trimming fails
               }
             }
+          } else {
+            // No segment trimming needed, but don't mark as 100% yet - wait for file serving
+            console.log('✅ Post-processing completed (no trimming required)');
+            sendUnifiedProgress('postprocessing', 90, { stage: 'Post-processing completed, preparing file' });
           }
         }
           
@@ -917,6 +1215,17 @@ app.post('/api/download-video', async (req, res) => {
               fs.rmSync(tempDir, { recursive: true, force: true });
             });
             
+            // Track archive streaming progress
+            let archiveBytesStreamed = 0;
+            
+            archive.on('data', (chunk) => {
+              archiveBytesStreamed += chunk.length;
+              const streamProgress = Math.min(95, 10 + (archiveBytesStreamed / (1024 * 1024)) * 0.5); // Gradual progress
+              sendUnifiedProgress('postprocessing', streamProgress, { 
+                stage: `Streaming archive (${Math.round(archiveBytesStreamed / 1024 / 1024)}MB)` 
+              });
+            });
+            
             // Pipe archive to response
             archive.pipe(res);
             
@@ -935,6 +1244,8 @@ app.post('/api/download-video', async (req, res) => {
             
             // Clean up after sending
             archive.on('end', () => {
+              console.log('✅ Archive streaming completed successfully');
+              sendUnifiedProgress('postprocessing', 100, { stage: 'Download completed', completed: true });
               fs.rmSync(tempDir, { recursive: true, force: true });
             });
             
@@ -960,6 +1271,8 @@ app.post('/api/download-video', async (req, res) => {
             res.setHeader('Content-Length', stats.size);
             
             const fileStream = fs.createReadStream(downloadedFile);
+            let bytesStreamed = 0;
+            const totalSize = stats.size;
             
             // Handle client disconnect during file streaming
             res.on('close', () => {
@@ -967,10 +1280,21 @@ app.post('/api/download-video', async (req, res) => {
               fs.rmSync(tempDir, { recursive: true, force: true });
             });
             
+            // Track streaming progress
+            fileStream.on('data', (chunk) => {
+              bytesStreamed += chunk.length;
+              const streamProgress = Math.min(95, 10 + (bytesStreamed / totalSize) * 85); // 10% to 95%
+              sendUnifiedProgress('postprocessing', streamProgress, { 
+                stage: `Streaming file (${Math.round(bytesStreamed / 1024 / 1024)}MB / ${Math.round(totalSize / 1024 / 1024)}MB)` 
+              });
+            });
+            
             fileStream.pipe(res);
             
             // Clean up after sending
              fileStream.on('end', () => {
+               console.log('✅ File streaming completed successfully');
+               sendUnifiedProgress('postprocessing', 100, { stage: 'Download completed', completed: true });
                fs.rmSync(tempDir, { recursive: true, force: true });
              });
             

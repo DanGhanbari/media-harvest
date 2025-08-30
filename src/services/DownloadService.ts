@@ -1,6 +1,6 @@
 import { saveAs } from 'file-saver';
 import { MediaItem } from './MediaDetectionService';
-import { API_ENDPOINTS } from '../config/api';
+import { API_ENDPOINTS, API_BASE_URL } from '../config/api';
 
 export interface QualityOption {
   value: string;
@@ -31,13 +31,33 @@ export class DownloadService {
   private static activeDownloads = new Map<string, AbortController>();
   private static ws: WebSocket | null = null;
   private static progressCallbacks = new Map<string, (progress: number, details?: ProgressDetails) => void>();
-  private static sessionId: string = Math.random().toString(36).substring(2, 15);
+  private static sessionId: string = '';
+
+  // Test WebSocket connection
+  static testWebSocketConnection(): void {
+    console.log('🧪 TESTING: WebSocket connection test started');
+    console.log('🧪 TESTING: API_BASE_URL:', API_BASE_URL);
+    console.log('🧪 TESTING: SessionId:', this.sessionId);
+    this.initWebSocket();
+  }
+
+  // Expose test function globally for debugging
+  static exposeTestFunction(): void {
+    (window as unknown as { testWebSocket: () => void }).testWebSocket = () => this.testWebSocketConnection();
+    console.log('🧪 TESTING: WebSocket test function exposed. Run testWebSocket() in console to test.');
+  }
 
   static initWebSocket(useSecure: boolean = true): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       console.log('🔌 DownloadService: WebSocket already connected, sessionId:', this.sessionId);
       return;
     }
+
+    // Always regenerate sessionId to ensure sync between client and server
+    // This prevents callback mismatches when WebSocket reconnects
+    const oldSessionId = this.sessionId;
+    this.sessionId = Math.random().toString(36).substring(2, 15);
+    console.log('🔌 DownloadService: Generated new sessionId:', this.sessionId, 'Previous:', oldSessionId);
 
     // Check if we're on Vercel (serverless platform that doesn't support WebSockets)
     const isVercel = window.location.hostname.includes('vercel.app') || 
@@ -49,17 +69,24 @@ export class DownloadService {
       return;
     }
 
-    // In production, platforms like Railway handle HTTPS termination at load balancer level
-    // The WebSocket connection should use the same protocol as the current page
-    // but fallback to ws:// if wss:// fails in production environments
-    const protocol = (window.location.protocol === 'https:' && useSecure) ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
+    // Use the same base URL as the API but convert to WebSocket protocol
+    // Extract host from API_BASE_URL and determine the correct WebSocket protocol
+    const apiUrl = new URL(API_BASE_URL);
+    const protocol = (apiUrl.protocol === 'https:' && useSecure) ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${apiUrl.host}`;
     
+    console.log(`🔌 CLIENT DEBUG: API_BASE_URL: ${API_BASE_URL}`);
+    console.log(`🔌 CLIENT DEBUG: Parsed API URL:`, apiUrl);
+    console.log(`🔌 CLIENT DEBUG: WebSocket protocol: ${protocol}`);
+    console.log(`🔌 CLIENT DEBUG: WebSocket host: ${apiUrl.host}`);
+    console.log(`🔌 CLIENT DEBUG: Final WebSocket URL: ${wsUrl}`);
     console.log(`🔌 DownloadService: Attempting WebSocket connection to: ${wsUrl} with sessionId: ${this.sessionId}`);
+    console.log('🔌 DownloadService: Creating WebSocket connection to:', wsUrl);
     this.ws = new WebSocket(wsUrl);
     
     this.ws.onopen = () => {
       console.log('🔌 DownloadService: WebSocket connected for progress tracking, sessionId:', this.sessionId);
+      console.log('🔌 DownloadService: WebSocket readyState:', this.ws?.readyState);
       // Register session with server
       const registerMessage = {
         type: 'register',
@@ -76,14 +103,23 @@ export class DownloadService {
         console.log('📨 DownloadService: Current progress callbacks:', Array.from(this.progressCallbacks.keys()));
         
         if (data.type === 'progress') {
-          console.log('📊 DownloadService: Checking for callback with operation:', data.operation);
+          console.log('📊 DownloadService: Checking for callback with operation:', JSON.stringify(data.operation));
+          console.log('📊 DownloadService: Available callback keys:', Array.from(this.progressCallbacks.keys()).map(k => JSON.stringify(k)));
+          console.log('📊 DownloadService: Frontend sessionId:', this.sessionId);
+          console.log('📊 DownloadService: Message data:', data);
+          
           const callback = this.progressCallbacks.get(data.operation);
           if (callback) {
-            console.log('🔄 DownloadService: Progress callback invoked with progress:', data.progress);
+            const timestamp = new Date().toISOString();
+            console.log(`🔄 DownloadService: Progress callback invoked at ${timestamp} with progress:`, data.progress, 'for operation:', data.operation);
+            console.log('🔄 DownloadService: Progress data:', data);
             callback(data.progress, data);
           } else {
-            console.log('❌ DownloadService: No callback found for operation:', data.operation);
-            console.log('❌ DownloadService: Available callbacks:', Array.from(this.progressCallbacks.keys()));
+            console.log('❌ DownloadService: No callback found for operation:', JSON.stringify(data.operation));
+            console.log('❌ DownloadService: Available callbacks:', Array.from(this.progressCallbacks.keys()).map(k => JSON.stringify(k)));
+            console.log('❌ DownloadService: Operation length:', data.operation?.length, 'First callback key length:', Array.from(this.progressCallbacks.keys())[0]?.length);
+            console.log('❌ DownloadService: Operation char codes:', Array.from(data.operation || '').map(c => (typeof c === 'string' ? c.charCodeAt(0) : 0)));
+            console.log('❌ DownloadService: First callback char codes:', Array.from(Array.from(this.progressCallbacks.keys())[0] || '').map(c => (typeof c === 'string' ? c.charCodeAt(0) : 0)));
           }
         }
       } catch (error) {
@@ -92,14 +128,33 @@ export class DownloadService {
     };
     
     this.ws.onclose = () => {
-      console.log('🔌 DownloadService: WebSocket disconnected');
+      const timestamp = new Date().toISOString();
+      console.log(`🔌 DownloadService: WebSocket disconnected at ${timestamp}`);
+      console.log('🔌 DownloadService: Active downloads at disconnect:', Array.from(this.activeDownloads.keys()));
+      console.log('🔌 DownloadService: Progress callbacks at disconnect:', Array.from(this.progressCallbacks.keys()));
       this.ws = null;
-      // Attempt to reconnect after 3 seconds
-      setTimeout(() => this.initWebSocket(), 3000);
+      // Only attempt to reconnect if there are active downloads
+      if (this.activeDownloads.size > 0) {
+        console.log('🔌 DownloadService: Active downloads detected, attempting to reconnect in 3 seconds');
+        console.log('🔌 DownloadService: Clearing', this.progressCallbacks.size, 'old progress callbacks (new sessionId will be generated)');
+        // Clear old callbacks since they won't work with the new sessionId
+        this.progressCallbacks.clear();
+        setTimeout(() => {
+          console.log(`🔌 DownloadService: Reconnecting WebSocket at ${new Date().toISOString()}`);
+          this.initWebSocket();
+        }, 3000);
+      } else {
+        console.log('🔌 DownloadService: No active downloads, not reconnecting');
+        // Clear callbacks when not reconnecting
+        this.progressCallbacks.clear();
+      }
     };
     
     this.ws.onerror = (error) => {
       console.error('🔌 DownloadService: WebSocket error:', error);
+      console.error('🔌 DownloadService: WebSocket error event:', error.type);
+      console.error('🔌 DownloadService: WebSocket readyState on error:', this.ws?.readyState);
+      console.error('🔌 DownloadService: WebSocket URL on error:', wsUrl);
       // If wss:// fails in production, try fallback to ws://
       if (window.location.protocol === 'https:' && useSecure) {
         console.log('🔌 DownloadService: WSS connection failed, attempting fallback to WS...');
@@ -111,39 +166,45 @@ export class DownloadService {
   }
 
   static async downloadMedia(item: MediaItem, quality?: string, onProgress?: (progress: number) => void, startTime?: string | number, endTime?: string | number): Promise<void> {
-    console.log('📥 DownloadService: downloadMedia called', { filename: item.filename, quality, hasProgressCallback: !!onProgress, sessionId: this.sessionId });
+    const timestamp = new Date().toISOString();
+    console.log(`📥 DownloadService: downloadMedia called at ${timestamp}`, { filename: item.filename, quality, hasProgressCallback: !!onProgress, sessionId: this.sessionId, url: item.url });
+    console.log('📥 DownloadService: Current active downloads:', Array.from(this.activeDownloads.keys()));
+    console.log('📥 DownloadService: Current progress callbacks:', Array.from(this.progressCallbacks.keys()));
     
     const downloadId = item.url;
     
     // Initialize WebSocket if not already connected
     this.initWebSocket();
     
-    // Wait a moment for WebSocket to connect if it's not already connected
+    // Wait for WebSocket to connect if it's not already connected
     if (this.ws?.readyState !== WebSocket.OPEN) {
       console.log('📥 DownloadService: Waiting for WebSocket connection...');
       await new Promise(resolve => {
+        const startTime = Date.now();
         const checkConnection = () => {
+          console.log('📥 DownloadService: Checking WebSocket state:', this.ws?.readyState, 'Expected OPEN:', WebSocket.OPEN);
           if (this.ws?.readyState === WebSocket.OPEN) {
             console.log('📥 DownloadService: WebSocket connection established');
             resolve(true);
+          } else if (Date.now() - startTime > 5000) {
+            console.log('📥 DownloadService: WebSocket connection timeout, proceeding without real-time progress');
+            console.log('📥 DownloadService: Final WebSocket state:', this.ws?.readyState);
+            resolve(false);
           } else {
             setTimeout(checkConnection, 100);
           }
         };
-        // Give up after 3 seconds
-        setTimeout(() => {
-          console.log('📥 DownloadService: WebSocket connection timeout, proceeding without real-time progress');
-          resolve(false);
-        }, 3000);
         checkConnection();
       });
     }
     
-    // Register progress callback for this download
+    // Register progress callback for this download using unique key
+    const callbackKey = `download_${item.url}`;
     if (onProgress) {
-      console.log('📊 DownloadService: Progress callback registered for download operation, sessionId:', this.sessionId);
-      this.progressCallbacks.set('download', onProgress);
-      console.log('📊 DownloadService: Current callbacks after registration:', Array.from(this.progressCallbacks.keys()));
+      console.log('📊 DownloadService: Progress callback registered for operation:', JSON.stringify(callbackKey), 'sessionId:', this.sessionId);
+      console.log('📊 DownloadService: Item URL for callback key:', JSON.stringify(item.url));
+      this.progressCallbacks.set(callbackKey, onProgress);
+      console.log('📊 DownloadService: Current callbacks after registration:', Array.from(this.progressCallbacks.keys()).map(k => JSON.stringify(k)));
     }
     
     // Create abort controller for this download
@@ -164,7 +225,10 @@ export class DownloadService {
       throw new Error(`Failed to download ${item.filename}`);
     } finally {
       this.activeDownloads.delete(downloadId);
-      this.progressCallbacks.delete('download');
+      // Clean up the progress callback using the same unique key
+      const callbackKey = `download_${item.url}`;
+      this.progressCallbacks.delete(callbackKey);
+      console.log('🧹 DownloadService: Cleaned up callback for:', callbackKey);
     }
   }
 

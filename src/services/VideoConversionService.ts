@@ -1,4 +1,4 @@
-import { API_ENDPOINTS } from '../config/api';
+import { API_ENDPOINTS, API_BASE_URL } from '../config/api';
 
 export interface ConversionRequest {
   format: string;
@@ -55,11 +55,11 @@ export class VideoConversionService {
       return;
     }
 
-    // In production, platforms like Railway handle HTTPS termination at load balancer level
-    // The WebSocket connection should use the same protocol as the current page
-    // but fallback to ws:// if wss:// fails in production environments
-    const protocol = (window.location.protocol === 'https:' && useSecure) ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
+    // Use the same base URL as the API but convert to WebSocket protocol
+    // Extract host from API_BASE_URL and determine the correct WebSocket protocol
+    const apiUrl = new URL(API_BASE_URL);
+    const protocol = (apiUrl.protocol === 'https:' && useSecure) ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${apiUrl.host}`;
     
     console.log(`Attempting WebSocket connection to: ${wsUrl}`);
     this.ws = new WebSocket(wsUrl);

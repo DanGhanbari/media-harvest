@@ -370,6 +370,12 @@ export const MediaDownloader = () => {
                             isDownloading={segmentDownloading[item.url] || false}
                             downloadProgress={segmentProgress[item.url] || 0}
                             onTimeRangeChange={async (startTime, endTime) => {
+                              // Prevent multiple downloads of the same segment
+                              if (segmentDownloading[item.url]) {
+                                console.log('🚫 MediaDownloader: Segment download already in progress for:', item.url);
+                                return;
+                              }
+
                               // Store the selected time range
                               setSelectedTimeRanges(prev => ({
                                 ...prev,
