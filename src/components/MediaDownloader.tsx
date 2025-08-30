@@ -19,6 +19,12 @@ import {
   MediaItem,
 } from "@/services/MediaDetectionService";
 import { MediaGrid } from "@/components/MediaGrid";
+import TimeRangeSelector from "@/components/TimeRangeSelector";
+import { Badge } from "@/components/ui/badge";
+import { Clock } from "lucide-react";
+import { DownloadService, QualityOption } from "@/services/DownloadService";
+import { formatTime } from "@/utils/timeUtils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 // Removed CookieUpload import - using automated cookie extraction
 
 export const MediaDownloader = () => {
@@ -28,7 +34,19 @@ export const MediaDownloader = () => {
   const [progress, setProgress] = useState(0);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
+  const [videoInfo, setVideoInfo] = useState<{[key: string]: {duration: number, title: string}}>({});
+  const [showTimeSelector, setShowTimeSelector] = useState<{[key: string]: boolean}>({});
+  const [selectedTimeRanges, setSelectedTimeRanges] = useState<{[key: string]: {start: number, end: number}}>({});
+  const [qualityOptions, setQualityOptions] = useState<QualityOption[]>([]);
+  const [selectedQuality, setSelectedQuality] = useState<{[key: string]: string}>({});
+  const [segmentDownloading, setSegmentDownloading] = useState<{[key: string]: boolean}>({});
+  const [segmentProgress, setSegmentProgress] = useState<{[key: string]: number}>({});
   const { toast } = useToast();
+
+  // Load quality options on component mount
+  React.useEffect(() => {
+    DownloadService.getQualityOptions().then(setQualityOptions);
+  }, []);
 
   const handleAnalyze = async () => {
     if (!url) {
@@ -45,6 +63,10 @@ export const MediaDownloader = () => {
     setMediaItems([]);
     setAnalysisError(null);
     setHasAnalyzed(true);
+    setVideoInfo({});
+    setShowTimeSelector({});
+    setSelectedTimeRanges({});
+    setSelectedQuality({});
 
     try {
       // Simulate progress
@@ -53,6 +75,49 @@ export const MediaDownloader = () => {
       }, 200);
 
       const items = await MediaDetectionService.detectMedia(url);
+
+      // Check for YouTube videos and get their duration info
+      console.log('=== ANALYSIS PROCESS START ===');
+      console.log('Processing media items:', items);
+      const newVideoInfo: {[key: string]: {duration: number, title: string}} = {};
+      
+      for (const item of items) {
+        console.log('\n--- Processing item ---');
+        console.log('Item URL:', item.url);
+        console.log('Item type:', item.type);
+        console.log('Is YouTube URL?', item.url.includes('youtube.com') || item.url.includes('youtu.be'));
+        
+        if (item.type === 'video' && (item.url.includes('youtube.com') || item.url.includes('youtu.be'))) {
+          console.log('✓ YouTube video detected, fetching info...');
+          try {
+            const videoData = await DownloadService.checkIfLongVideo(item.url);
+            console.log('Raw video data received:', JSON.stringify(videoData, null, 2));
+            
+            if (videoData && videoData.videoInfo) {
+              const duration = videoData.videoInfo.duration || videoData.duration;
+              const title = videoData.videoInfo.title || 'Unknown Video';
+              console.log('Extracted duration:', duration, 'seconds');
+              console.log('Extracted title:', title);
+              console.log('Duration > 960 seconds?', duration > 960);
+              
+              newVideoInfo[item.url] = { duration, title };
+              console.log('✓ Video info stored for', item.url, ':', newVideoInfo[item.url]);
+            } else {
+              console.warn('⚠️ No videoInfo in response:', videoData);
+            }
+          } catch (error) {
+            console.error('❌ Error fetching video info:', error);
+          }
+        } else {
+          console.log('⏭️ Skipping non-YouTube video or non-video item');
+        }
+      }
+      
+      console.log('\n=== FINAL RESULTS ===');
+      console.log('Final videoInfo state:', JSON.stringify(newVideoInfo, null, 2));
+      console.log('Number of videos processed:', Object.keys(newVideoInfo).length);
+      setVideoInfo(newVideoInfo);
+      console.log('=== ANALYSIS PROCESS END ===\n');
 
       clearInterval(progressInterval);
       setProgress(100);
@@ -136,17 +201,20 @@ export const MediaDownloader = () => {
                   disabled={isAnalyzing}
                 />
               </div>
-              <Button
-                onClick={handleAnalyze}
-                className="h-14 px-8 text-lg"
-                disabled={isAnalyzing}
-              >
-                {isAnalyzing ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  "Analyze"
-                )}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleAnalyze}
+                  className="h-14 px-8 text-lg"
+                  disabled={isAnalyzing}
+                >
+                  {isAnalyzing ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    "Analyze"
+                  )}
+                </Button>
+
+              </div>
             </div>
           </div>
 
@@ -218,6 +286,161 @@ export const MediaDownloader = () => {
 
             {/* Media Grid */}
             <MediaGrid items={mediaItems} />
+            
+            {/* Time Range Selector - positioned after media grid */}
+            {(() => {
+              console.log('\n=== TIME SELECTOR RENDER CHECK ===');
+              console.log('mediaItems.length:', mediaItems.length);
+              console.log('mediaItems:', mediaItems);
+              console.log('videoInfo state:', videoInfo);
+              
+              const hasLongYouTubeVideo = mediaItems.some(item => {
+                const isVideo = item.type === 'video';
+                const isYouTube = item.url.includes('youtube.com') || item.url.includes('youtu.be');
+                const hasVideoInfo = videoInfo[item.url];
+                const isLong = hasVideoInfo && videoInfo[item.url].duration > 960;
+                
+                console.log(`Item ${item.url}:`);
+                console.log('  - Is video:', isVideo);
+                console.log('  - Is YouTube:', isYouTube);
+                console.log('  - Has video info:', !!hasVideoInfo);
+                console.log('  - Duration:', hasVideoInfo ? videoInfo[item.url].duration : 'N/A');
+                console.log('  - Is long (>960s):', isLong);
+                
+                return isVideo && isYouTube && hasVideoInfo && isLong;
+              });
+              
+              console.log('Should show TimeRangeSelector:', hasLongYouTubeVideo);
+              console.log('=== END TIME SELECTOR CHECK ===\n');
+              
+              return hasLongYouTubeVideo ? (
+                <Card className="p-8 mb-8 shadow-card">
+                  <div className="space-y-6">
+                    {mediaItems
+                      .filter(item => 
+                        item.type === 'video' && 
+                        (item.url.includes('youtube.com') || item.url.includes('youtu.be')) && 
+                        videoInfo[item.url] && 
+                        videoInfo[item.url].duration > 960
+                      )
+                      .map(item => (
+                        <div key={item.url} className="space-y-4">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary" className="bg-blue-500/20 text-blue-400 border-blue-500/30">
+                              <Clock className="w-3 h-3 mr-1" />
+                              Long Video Detected
+                            </Badge>
+                            <h3 className="text-lg font-semibold text-foreground">Time Range Selection</h3>
+                          </div>
+                          
+                          <div className="text-sm text-muted-foreground">
+                            This video is longer than 16 minutes. You can select a specific time range to download.
+                          </div>
+                          
+                          {/* Quality Selector */}
+                          <div className="space-y-3 p-3 bg-muted/20 rounded-lg border border-border/30 backdrop-blur-sm">
+                            <label className="text-sm font-semibold text-foreground flex items-center gap-2">
+                              Quality Settings:
+                            </label>
+                            <Select
+                              value={selectedQuality[item.url] || 'maximum'}
+                              onValueChange={(value) => {
+                                setSelectedQuality(prev => ({ ...prev, [item.url]: value }));
+                              }}
+                            >
+                              <SelectTrigger className="w-full bg-background/50 border-border/50 hover:border-primary/50 transition-colors duration-200">
+                                <SelectValue placeholder="Select quality" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {qualityOptions.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    <div className="flex flex-col">
+                                      <span>{option.label}</span>
+                                      <span className="text-xs text-muted-foreground">{option.description}</span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          <TimeRangeSelector
+                            videoDuration={videoInfo[item.url].duration}
+                            videoTitle={videoInfo[item.url].title}
+                            isDownloading={segmentDownloading[item.url] || false}
+                            downloadProgress={segmentProgress[item.url] || 0}
+                            onTimeRangeChange={async (startTime, endTime) => {
+                              // Store the selected time range
+                              setSelectedTimeRanges(prev => ({
+                                ...prev,
+                                [item.url]: { start: startTime, end: endTime }
+                              }));
+                              
+                              // Set downloading state
+                              setSegmentDownloading(prev => ({ ...prev, [item.url]: true }));
+                              setSegmentProgress(prev => ({ ...prev, [item.url]: 0 }));
+                              
+                              // Trigger the download with the selected time range
+                              try {
+                                const quality = selectedQuality[item.url] || 'maximum';
+                                await DownloadService.downloadMedia(item, quality, (progress) => {
+                                  setSegmentProgress(prev => ({ ...prev, [item.url]: progress }));
+                                }, startTime, endTime);
+                                
+                                const timeRangeText = `${formatTime(startTime)} - ${formatTime(endTime)}`;
+                                toast({
+                                  title: "Download Complete",
+                                  description: `${item.filename} (${timeRangeText}) has been downloaded successfully`,
+                                });
+                              } catch (error) {
+                                console.error('Download failed:', error);
+                                // Check if this is an AbortError (cancellation) or if download was already cancelled
+                                if (error instanceof Error && (error.name === 'AbortError' || error.message.includes('cancelled') || error.message.includes('aborted'))) {
+                                  // Don't show toast for cancellation - it's already handled by onCancelDownload
+                                  return;
+                                }
+                                // Only show error toast if the download is still marked as active
+                                if (segmentDownloading[item.url]) {
+                                  toast({
+                                    title: "Download Failed",
+                                    description: error instanceof Error ? error.message : "An error occurred during download",
+                                    variant: "destructive",
+                                  });
+                                }
+                              } finally {
+                                // Reset downloading state
+                                setSegmentDownloading(prev => ({ ...prev, [item.url]: false }));
+                                setSegmentProgress(prev => ({ ...prev, [item.url]: 0 }));
+                              }
+                            }}
+                            onCancel={() => {
+                              setShowTimeSelector(prev => ({
+                                ...prev,
+                                [item.url]: false
+                              }));
+                              // Reset downloading state when canceling time selector
+                              setSegmentDownloading(prev => ({ ...prev, [item.url]: false }));
+                              setSegmentProgress(prev => ({ ...prev, [item.url]: 0 }));
+                            }}
+                            onCancelDownload={() => {
+                              // Cancel the active download
+                              DownloadService.cancelDownload(item.url);
+                              setSegmentDownloading(prev => ({ ...prev, [item.url]: false }));
+                              setSegmentProgress(prev => ({ ...prev, [item.url]: 0 }));
+                              toast({
+                                title: "Download Cancelled",
+                                description: `Download of ${item.filename} segment has been cancelled`,
+                              });
+                            }}
+                            inline={true}
+                          />
+                        </div>
+                      ))
+                    }
+                  </div>
+                </Card>
+              ) : null;
+            })()}
           </div>
         )}
 
