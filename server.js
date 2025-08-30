@@ -58,9 +58,10 @@ wss.on('connection', (ws, req) => {
 // Function to send progress updates via WebSocket
 function sendProgressUpdate(sessionId, type, progress, details = {}) {
   const ws = wsConnections.get(sessionId);
-  console.log(`📡 DEBUG: Attempting to send progress update for session: ${sessionId}`);
-  console.log(`📡 DEBUG: WebSocket found: ${!!ws}, ReadyState: ${ws?.readyState}`);
-  console.log(`📡 DEBUG: Total active connections: ${wsConnections.size}`);
+  console.log(`📡 SERVER DEBUG: Attempting to send progress update for session: ${sessionId}`);
+  console.log(`📡 SERVER DEBUG: WebSocket found: ${!!ws}, ReadyState: ${ws?.readyState}`);
+  console.log(`📡 SERVER DEBUG: Total active connections: ${wsConnections.size}`);
+  console.log(`📡 SERVER DEBUG: All registered sessions:`, Array.from(wsConnections.keys()));
   
   if (ws && ws.readyState === ws.OPEN) {
     const message = {
@@ -69,11 +70,17 @@ function sendProgressUpdate(sessionId, type, progress, details = {}) {
       progress: progress,
       ...details
     };
-    console.log(`📡 DEBUG: Sending WebSocket message:`, message);
-    ws.send(JSON.stringify(message));
+    console.log(`📡 SERVER DEBUG: Sending WebSocket message:`, message);
+    try {
+      ws.send(JSON.stringify(message));
+      console.log(`📡 SERVER DEBUG: Message sent successfully`);
+    } catch (error) {
+      console.error(`📡 SERVER DEBUG: Error sending WebSocket message:`, error);
+    }
   } else {
-    console.log(`📡 DEBUG: Cannot send progress - WebSocket not available or not open`);
-    console.log(`📡 DEBUG: Available sessions:`, Array.from(wsConnections.keys()));
+    console.log(`📡 SERVER DEBUG: Cannot send progress - WebSocket not available or not open`);
+    console.log(`📡 SERVER DEBUG: Available sessions:`, Array.from(wsConnections.keys()));
+    console.log(`📡 SERVER DEBUG: Requested sessionId: ${sessionId}`);
   }
 }
 
@@ -305,6 +312,9 @@ app.post('/api/cancel-download', (req, res) => {
 // Download video from supported platforms (YouTube, Instagram, Facebook, Twitter)
 app.post('/api/download-video', async (req, res) => {
   const { url, filename, quality = 'maximum', sessionId, startTime, endTime } = req.body;
+  
+  console.log('🎬 SERVER DEBUG: Download request received', { url, filename, quality, sessionId, hasWebSocketConnection: wsConnections.has(sessionId) });
+  console.log('🎬 SERVER DEBUG: Active WebSocket connections:', Array.from(wsConnections.keys()));
   
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
@@ -582,6 +592,9 @@ app.post('/api/download-video', async (req, res) => {
     };
     
     ytDlp = await tryDownload();
+    
+    console.log('🎬 SERVER DEBUG: yt-dlp process started for sessionId:', sessionId);
+    console.log('🎬 SERVER DEBUG: Process PID:', ytDlp.pid);
     
     // Register this download in the active downloads map
     activeDownloads.set(url, { ytDlp, tempDir, cleanup });
