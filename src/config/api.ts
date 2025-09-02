@@ -20,6 +20,7 @@ const getApiBaseUrl = (): string => {
   
   // In production, ALWAYS use relative URLs to leverage Vercel's proxy
   // This ignores any VITE_API_BASE_URL environment variable that might be set
+  // Force cache refresh: 2025-09-02T18:59:30Z
   return '';
 };
 
@@ -47,4 +48,4 @@ export const createApiUrl = (endpoint: string): string => {
   return `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
 };
 
-// API Configuration loaded for development
+// API Configuration loaded for development - Updated: 2025-09-02T18:59:00Z
