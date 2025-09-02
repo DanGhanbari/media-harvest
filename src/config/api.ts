@@ -22,8 +22,9 @@ const getApiBaseUrl = (): string => {
     return envApiUrl.replace(/\/$/, '');
   }
   
-  // Fallback to localhost in development, or current origin in production
-  return isDevelopment ? BACKEND_SERVERS.LOCAL : window.location.origin;
+  // In production, use relative URLs to leverage Vercel's proxy
+  // In development, use localhost
+  return isDevelopment ? BACKEND_SERVERS.LOCAL : '';
 };
 
 
