@@ -528,6 +528,9 @@ app.post('/api/download-video', async (req, res) => {
       // Try to use cookies for YouTube authentication if available
       if (process.env.YOUTUBE_COOKIES_FILE && fs.existsSync(process.env.YOUTUBE_COOKIES_FILE)) {
         ytDlpArgs.push('--cookies', process.env.YOUTUBE_COOKIES_FILE);
+      } else {
+        // Try browser cookies to bypass bot detection
+        ytDlpArgs.push('--cookies-from-browser', 'chrome');
       }
     } else {
       // Default arguments for other platforms
@@ -1446,9 +1449,15 @@ app.post('/api/video-info', async (req, res) => {
       '--no-playlist',
       '--no-warnings',
       '--socket-timeout', '30',
-      '--extractor-retries', '1',
-      url
+      '--extractor-retries', '1'
     ];
+    
+    // Add cookie support for YouTube to bypass bot detection
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      ytDlpArgs.push('--cookies-from-browser', 'chrome');
+    }
+    
+    ytDlpArgs.push(url);
 
     const ytDlp = spawn('yt-dlp', ytDlpArgs);
     let stdout = '';
