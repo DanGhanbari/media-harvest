@@ -286,42 +286,72 @@ export class DownloadService {
 
   static async getVideoInfo(url: string): Promise<{ title: string; duration: number; uploader: string; thumbnail?: string } | null> {
     try {
+      console.log('🔍 getVideoInfo called with URL:', url);
+      console.log('🔍 API_ENDPOINTS.VIDEO_INFO:', API_ENDPOINTS.VIDEO_INFO);
+      
       // Add a client-side timeout as well (50 seconds to allow for server timeout)
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 50000);
       
+      const requestBody = JSON.stringify({ url });
+      console.log('🔍 Request body:', requestBody);
+      
+      console.log('🔍 Making fetch request...');
       const response = await fetch(API_ENDPOINTS.VIDEO_INFO, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url }),
+        body: requestBody,
         signal: controller.signal
       });
       
       clearTimeout(timeoutId);
       
+      console.log('🔍 Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries())
+      });
+      
       if (!response.ok) {
+        console.error('❌ Response not OK:', response.status, response.statusText);
+        const errorText = await response.text();
+        console.error('❌ Error response body:', errorText);
+        
         if (response.status === 408) {
           console.warn('Video analysis timed out - video may be too large or network too slow');
           return null;
         }
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
       
-      const data = await response.json();
-      return {
+      const responseText = await response.text();
+      console.log('🔍 Raw response text:', responseText);
+      
+      const data = JSON.parse(responseText);
+      console.log('🔍 Parsed response data:', data);
+      
+      const result = {
         title: data.title || 'Unknown Title',
         duration: data.duration || 0,
         uploader: data.uploader || 'Unknown',
         thumbnail: data.thumbnail
       };
+      
+      console.log('✅ getVideoInfo returning:', result);
+      return result;
     } catch (error) {
       if (error.name === 'AbortError') {
         console.warn('Video analysis request was aborted due to timeout');
         return null;
       }
-      console.error('Failed to fetch video info:', error);
+      console.error('❌ Failed to fetch video info:', error);
+      console.error('❌ Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
       return null;
     }
   }
