@@ -13,18 +13,14 @@ const getApiBaseUrl = (): string => {
   // Check if we're in development mode
   const isDevelopment = import.meta.env.DEV;
   
-  // Get the base URL from environment variables
-  const envApiUrl = import.meta.env.VITE_API_BASE_URL;
-  
-  // Return the appropriate URL
-  if (envApiUrl) {
-    // Remove trailing slash to prevent double slashes
-    return envApiUrl.replace(/\/$/, '');
+  // In development, use localhost
+  if (isDevelopment) {
+    return BACKEND_SERVERS.LOCAL;
   }
   
-  // In production, use relative URLs to leverage Vercel's proxy
-  // In development, use localhost
-  return isDevelopment ? BACKEND_SERVERS.LOCAL : '';
+  // In production, ALWAYS use relative URLs to leverage Vercel's proxy
+  // This ignores any VITE_API_BASE_URL environment variable that might be set
+  return '';
 };
 
 
