@@ -154,11 +154,6 @@ const corsOptions = {
 // Middleware
 app.use(cors(corsOptions));
 
-// Serve static files from the dist directory (only if not backend-only mode)
-if (process.env.BACKEND_ONLY !== 'true') {
-  app.use(express.static(path.join(__dirname, 'dist')));
-}
-
 app.use(express.json({ limit: '10mb' }));
 
 // Configure multer for video file uploads
@@ -2231,6 +2226,11 @@ app.post('/api/convert-video', upload.single('video'), async (req, res) => {
     });
   }
 });
+
+// Serve static files from the dist directory (only if not backend-only mode)
+if (process.env.BACKEND_ONLY !== 'true') {
+  app.use(express.static(path.join(__dirname, 'dist')));
+}
 
 // Serve frontend for all other GET routes (not API routes)
 app.get('*', (req, res) => {
