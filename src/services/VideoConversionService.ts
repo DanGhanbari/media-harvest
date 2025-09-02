@@ -56,10 +56,18 @@ export class VideoConversionService {
     }
 
     // Use the same base URL as the API but convert to WebSocket protocol
-    // Extract host from API_BASE_URL and determine the correct WebSocket protocol
-    const apiUrl = new URL(API_BASE_URL);
-    const protocol = (apiUrl.protocol === 'https:' && useSecure) ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${apiUrl.host}`;
+    // Handle both absolute URLs and relative URLs (for Vercel proxy)
+    let wsUrl: string;
+    if (API_BASE_URL === '' || API_BASE_URL.startsWith('/')) {
+      // For relative URLs (Vercel proxy), use current window location
+      const protocol = window.location.protocol === 'https:' && useSecure ? 'wss:' : 'ws:';
+      wsUrl = `${protocol}//${window.location.host}`;
+    } else {
+      // For absolute URLs, extract host from API_BASE_URL
+      const apiUrl = new URL(API_BASE_URL);
+      const protocol = (apiUrl.protocol === 'https:' && useSecure) ? 'wss:' : 'ws:';
+      wsUrl = `${protocol}//${apiUrl.host}`;
+    }
     
     console.log(`Attempting WebSocket connection to: ${wsUrl}`);
     this.ws = new WebSocket(wsUrl);
