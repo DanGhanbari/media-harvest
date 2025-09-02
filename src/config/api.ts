@@ -31,6 +31,14 @@ const getApiBaseUrl = (): string => {
 
 export const API_BASE_URL = getApiBaseUrl();
 
+// Debug logging to see what URL is being used
+console.log('🔧 API CONFIG DEBUG:', {
+  isDevelopment: import.meta.env.DEV,
+  envApiUrl: import.meta.env.VITE_API_BASE_URL,
+  finalApiBaseUrl: API_BASE_URL,
+  windowLocation: typeof window !== 'undefined' ? window.location.origin : 'N/A'
+});
+
 // API endpoints
 export const API_ENDPOINTS = {
   QUALITY_OPTIONS: `${API_BASE_URL}/api/quality-options`,
