@@ -5,6 +5,7 @@
 // Available backend servers
 export const BACKEND_SERVERS = {
   RAILWAY: 'https://media-tools-production.up.railway.app',
+  VPS: 'https://57.129.63.234',
   LOCAL: 'http://localhost:3001'
 } as const;
 
@@ -18,10 +19,10 @@ const getApiBaseUrl = (): string => {
     return BACKEND_SERVERS.LOCAL;
   }
   
-  // In production, ALWAYS use relative URLs to leverage Vercel's proxy
-  // This ignores any VITE_API_BASE_URL environment variable that might be set
-  // Force cache refresh: 2025-09-02T18:59:30Z
-  return '';
+  // In production, use VPS backend
+  // Updated to point to VPS instead of Vercel proxy
+  // Force cache refresh: 2025-01-22T20:30:00Z
+  return BACKEND_SERVERS.VPS;
 };
 
 
