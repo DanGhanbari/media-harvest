@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "http://57.129.63.234:3001/api/$1"
+      "destination": "https://harassment-administrative-prophet-finance.trycloudflare.com/api/$1"
     },
     {
       "source": "/(.*)",

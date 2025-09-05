@@ -5,7 +5,7 @@
 // Available backend servers
 export const BACKEND_SERVERS = {
   RAILWAY: 'https://media-tools-production.up.railway.app',
-  VPS: 'https://57.129.63.234',
+  VPS: 'https://harassment-administrative-prophet-finance.trycloudflare.com',
   LOCAL: 'http://localhost:3001'
 } as const;
 
@@ -14,14 +14,14 @@ const getApiBaseUrl = (): string => {
   // Check if we're in development mode
   const isDevelopment = import.meta.env.DEV;
   
-  // In development, use localhost
+  // In development, use local backend for testing
   if (isDevelopment) {
     return BACKEND_SERVERS.LOCAL;
   }
   
-  // In production, use VPS backend
-  // Updated to point to VPS instead of Vercel proxy
-  // Force cache refresh: 2025-01-22T20:30:00Z
+  // In production, use Cloudflare tunnel
+  // Updated to use Cloudflare tunnel for SSL and bot detection bypass
+  // Force cache refresh: 2025-01-04T19:45:00Z
   return BACKEND_SERVERS.VPS;
 };
 
@@ -49,4 +49,4 @@ export const createApiUrl = (endpoint: string): string => {
   return `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
 };
 
-// API Configuration loaded for development - Updated: 2025-09-02T18:59:00Z
+// API Configuration loaded for development - Updated: 2025-01-04T19:45:00Z
