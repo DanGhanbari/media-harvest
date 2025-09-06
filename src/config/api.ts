@@ -18,11 +18,10 @@ const getApiBaseUrl = (): string => {
   if (isDevelopment) {
     return BACKEND_SERVERS.LOCAL;
   }
-  
-  // In production, use Cloudflare tunnel
-  // Updated to use Cloudflare tunnel for SSL and bot detection bypass
-  // Force cache refresh: 2025-01-04T19:45:00Z
-  return BACKEND_SERVERS.VPS;
+
+  // In production, use relative URLs to leverage Vercel's serverless functions
+  // This will route through the serverless functions in /api/ instead of direct VPS calls
+  return '';
 };
 
 
