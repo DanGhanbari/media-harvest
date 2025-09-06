@@ -5,7 +5,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const VPS_BACKEND_URL = 'https://harassment-administrative-prophet-finance.trycloudflare.com';
+  const VPS_BACKEND_URL = process.env.VPS_BACKEND_URL || 'https://harassment-administrative-prophet-finance.trycloudflare.com';
   
   try {
     // Forward the request to the VPS backend
