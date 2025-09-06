@@ -1,15 +1,8 @@
 
 // Helper function to get browser cookies for yt-dlp
 function getCookiesPath() {
-    const cookiePath = '/home/daniel/youtube-cookies.txt';
-    try {
-        if (fs.existsSync(cookiePath) && fs.statSync(cookiePath).size > 0) {
-            return ['--cookies', cookiePath];
-        }
-    } catch (error) {
-        console.warn('Cookie file not accessible:', error.message);
-    }
-    return [];
+    // Use fresh cookies from Chrome browser for better YouTube compatibility
+    return ['--cookies-from-browser', 'chrome'];
 }
 import express from 'express';
 import { spawn } from 'child_process';
