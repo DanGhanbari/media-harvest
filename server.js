@@ -1,3 +1,15 @@
+// Helper function to check and use cookies for yt-dlp
+function getCookiesPath() {
+    const cookiePath = '/home/daniel/youtube-cookies.txt';
+    try {
+        if (fs.existsSync(cookiePath) && fs.statSync(cookiePath).size > 0) {
+            return cookiePath;
+        }
+    } catch (error) {
+        console.warn('Cookie file not accessible:', error.message);
+    }
+    return null;
+}
 import express from 'express';
 import { spawn } from 'child_process';
 import fs from 'fs';
@@ -112,9 +124,11 @@ const corsOptions = {
           'http://localhost:3000',
           'http://localhost:3001', // Local development server
           'http://localhost:5173', // Vite dev server
+          'http://localhost:8082', // Vite dev server (alternative port)
           'http://127.0.0.1:3000',
           'http://127.0.0.1:3001',
           'http://127.0.0.1:5173',
+          'http://127.0.0.1:8082',
           'http://localhost:3002'
         ];
     
@@ -184,7 +198,7 @@ if (!fs.existsSync(uploadsDir)) {
 // Check if yt-dlp is installed
 function checkYtDlp() {
   return new Promise((resolve) => {
-    const ytDlp = spawn('yt-dlp', ['--version']);
+    const ytDlp = spawn('yt-dlp', ['--version', ...(getCookiesPath() ? ['--cookies', getCookiesPath()] : [])]);
     ytDlp.on('close', (code) => {
       resolve(code === 0);
     });
@@ -246,20 +260,20 @@ function detectPlatform(url) {
 
 // Quality format mappings
 const qualityFormats = {
-  'maximum': 'bestvideo[height>=1080]+bestaudio/best[height>=1080]/bestvideo[height>=720]+bestaudio/best[height>=720]/best',
-  'high': 'bestvideo[height>=720]+bestaudio/best[height>=720]/bestvideo[height>=480]+bestaudio/best[height>=480]/best',
-  'medium': 'bestvideo[height>=480]+bestaudio/best[height>=480]/bestvideo[height>=360]+bestaudio/best[height>=360]/best',
-  'low': 'bestvideo[height>=360]+bestaudio/best[height>=360]/best',
-  'audio': 'bestaudio/best[acodec!=none]'
+  'maximum': 'best[height<=1080]/best',
+  'high': 'best[height<=720]/best',
+  'medium': 'best[height<=480]/best',
+  'low': 'best[height<=360]/best',
+  'audio': 'bestaudio/best'
 }
 
 // Alternative format strategies for bypassing restrictions
 const alternativeFormats = {
-  'maximum': ['137+140/136+140/135+140/134+140', 'best[height>=1080]', 'best[height>=720]', 'best'],
-  'high': ['136+140/135+140/134+140', 'best[height>=720][height<=720]', 'best[height>=480][height<=720]', 'worst[height>=720]'],
-  'medium': ['135+140/134+140', 'best[height>=480][height<=480]', 'best[height>=360][height<=480]', 'worst[height>=480]'],
-  'low': ['134+140', 'best[height>=360][height<=360]', 'worst[height>=360]', 'worst'],
-  'audio': ['140', 'bestaudio', 'best[acodec!=none]']
+  'maximum': ['best[height<=1080]', 'best'],
+  'high': ['best[height<=720]', 'best'],
+  'medium': ['best[height<=480]', 'best'],
+  'low': ['best[height<=360]', 'best'],
+  'audio': ['bestaudio', 'best']
 }
 
 // Get available quality options endpoint
@@ -1440,6 +1454,8 @@ app.post('/api/video-info', async (req, res) => {
       '--ignore-config',
       '--socket-timeout', '30',
       '--extractor-retries', '1'
+    ,
+        ...(getCookiesPath() ? ['--cookies', getCookiesPath()] : [])
     ];
     
     // Add anti-bot measures for YouTube with fallback options

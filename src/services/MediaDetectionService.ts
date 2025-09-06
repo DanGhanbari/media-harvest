@@ -19,7 +19,7 @@ export class MediaDetectionService {
     
     // Handle social media platform URLs specially
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      return this.handleYouTubeUrl(url);
+      return await this.handleYouTubeUrl(url);
     }
     
     if (url.includes('instagram.com')) {
@@ -90,16 +90,61 @@ export class MediaDetectionService {
     }
   }
   
-  private static handleYouTubeUrl(url: string): MediaItem[] {
-    const videoId = this.extractYouTubeId(url);
-    const filename = this.extractFilename(url);
+  private static async handleYouTubeUrl(url: string): Promise<MediaItem[]> {
+    console.log('🎬 handleYouTubeUrl called with:', url);
     
-    return [{
-      url: url,
-      type: 'video' as const,
-      filename: `${filename}.mp4`,
-      thumbnail: videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : undefined
-    }];
+    try {
+      // Import API endpoints
+      const { API_ENDPOINTS } = await import('../config/api');
+      console.log('📡 Making API call to:', API_ENDPOINTS.VIDEO_INFO);
+      
+      // Make API call to get real video info
+      const response = await fetch(API_ENDPOINTS.VIDEO_INFO, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url })
+      });
+      
+      console.log('📡 API response status:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
+      }
+      
+      const videoInfo = await response.json();
+      console.log('📡 API response data:', videoInfo);
+      
+      // Return real video information
+      const result = [{
+        url: url,
+        type: 'video' as const,
+        filename: `${videoInfo.title || 'video'}.${videoInfo.ext || 'mp4'}`,
+        size: videoInfo.filesize_approx ? `${Math.round(videoInfo.filesize_approx / 1024 / 1024)} MB` : undefined,
+        dimensions: videoInfo.width && videoInfo.height ? `${videoInfo.width}x${videoInfo.height}` : undefined,
+        thumbnail: videoInfo.thumbnail || (this.extractYouTubeId(url) ? `https://img.youtube.com/vi/${this.extractYouTubeId(url)}/maxresdefault.jpg` : undefined)
+      }];
+      
+      console.log('✅ Returning real video data:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ Error fetching YouTube video info:', error);
+      
+      // Fallback to basic info if API call fails
+      const videoId = this.extractYouTubeId(url);
+      const filename = this.extractFilename(url);
+      
+      const fallbackResult = [{
+        url: url,
+        type: 'video' as const,
+        filename: `${filename}.mp4`,
+        thumbnail: videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : undefined
+      }];
+      
+      console.log('⚠️ Returning fallback data:', fallbackResult);
+      return fallbackResult;
+    }
   }
   
   private static handleInstagramUrl(url: string): MediaItem[] {
@@ -148,14 +193,14 @@ export class MediaDetectionService {
   
   private static extractYouTubeId(url: string): string | null {
     const patterns = [
-      /youtu\.be\/([^/]+)/,
-      /youtube\.com\/watch\?v=([^/&]+)/,
-      /youtube\.com\/embed\/([^/]+)/,
-      /youtube\.com\/v\/([^/]+)/
+      /youtu\.be\/([^/?]+)/,
+      /youtube\.com\/watch\?.*v=([^&]+)/,
+      /youtube\.com\/embed\/([^/?]+)/,
+      /youtube\.com\/v\/([^/?]+)/
     ];
     
-    // Clean URL by removing fragments and the '?si=' parameter
-    const cleanUrl = url.split('#')[0].split('?si=')[0];
+    // Remove fragments but keep query parameters for proper parsing
+    const cleanUrl = url.split('#')[0];
     
     for (const pattern of patterns) {
       const match = cleanUrl.match(pattern);
