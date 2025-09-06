@@ -5,7 +5,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const VPS_BACKEND_URL = process.env.VPS_BACKEND_URL || 'https://media-tools-production.up.railway.app';
+  const VPS_BACKEND_URL = process.env.VPS_BACKEND_URL || 'http://57.129.63.234:3001';
   
   try {
     // Forward the request to the VPS backend
