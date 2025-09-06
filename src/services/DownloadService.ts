@@ -266,7 +266,13 @@ export class DownloadService {
 
   static async getQualityOptions(): Promise<QualityOption[]> {
     try {
-      const response = await fetch(API_ENDPOINTS.QUALITY_OPTIONS);
+      const response = await fetch(API_ENDPOINTS.QUALITY_OPTIONS, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({})
+      });
       if (!response.ok) {
         throw new Error('Failed to fetch quality options');
       }
