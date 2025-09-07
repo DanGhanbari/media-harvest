@@ -1563,40 +1563,24 @@ app.post('/api/video-info', async (req, res) => {
               }
             }
             
-            // If retry also fails, provide mock data
-            console.log('Retry also failed, providing mock data for testing');
-            const mockInfo = {
-              title: 'Rick Astley - Never Gonna Give You Up (Official Video)',
-              duration: 213,
-              durationString: '3:33',
-              uploader: 'Rick Astley',
-              thumbnail: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg',
-              description: 'The official video for Rick Astley\'s "Never Gonna Give You Up"',
-              viewCount: 1000000000,
-              uploadDate: '20091025',
-              platform: 'youtube'
-            };
-            return res.json(mockInfo);
+            // If retry also fails, return error
+            console.log('Retry also failed, returning error');
+            return res.status(500).json({ 
+              error: 'Failed to get video information after retry',
+              details: retryStderr || 'Video information could not be extracted'
+            });
           });
           
           return; // Exit early to avoid the normal error response
         }
         
-        // Check if this is a YouTube bot detection error and provide mock data for testing
+        // Check if this is a YouTube bot detection error and return proper error
         if (stderr.includes('Sign in to confirm') && url.includes('youtube.com')) {
-          console.log('YouTube bot detection detected, providing mock data for testing');
-          const mockInfo = {
-            title: 'Iran\'s Last Great Nomads | Inside the Bakhtiari Tribe | Free Documentary',
-            duration: 2350, // 39 minutes 10 seconds (actual video duration)
-            durationString: '39:10',
-            uploader: 'Free Documentary',
-            thumbnail: 'https://i.ytimg.com/vi/d_wydBfgSpk/maxresdefault.jpg',
-            description: 'Documentary about the Bakhtiari tribe in Iran',
-            viewCount: 1000000,
-            uploadDate: '20180101',
-            platform: 'youtube'
-          };
-          return res.json(mockInfo);
+          console.log('YouTube bot detection detected, returning error');
+          return res.status(500).json({ 
+            error: 'YouTube access restricted',
+            details: 'Video information could not be extracted due to access restrictions'
+          });
         }
         
         res.status(500).json({ 

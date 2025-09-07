@@ -5,7 +5,7 @@
 // Available backend servers
 export const BACKEND_SERVERS = {
   RAILWAY: 'https://media-tools-production.up.railway.app',
-  VPS: 'https://harassment-administrative-prophet-finance.trycloudflare.com',
+  VPS: 'http://57.129.63.234:3001',
   LOCAL: 'http://localhost:3001'
 } as const;
 
@@ -19,9 +19,8 @@ const getApiBaseUrl = (): string => {
     return BACKEND_SERVERS.LOCAL;
   }
 
-  // In production, use relative URLs to leverage Vercel's serverless functions
-  // This will route through the serverless functions in /api/ instead of direct VPS calls
-  return '';
+  // In production, use VPS server directly
+  return BACKEND_SERVERS.VPS;
 };
 
 

@@ -1,14 +1,28 @@
 // Helper function to check and use cookies for yt-dlp
 function getCookiesPath() {
-    const cookiePath = '/home/daniel/youtube-cookies.txt';
-    try {
-        if (fs.existsSync(cookiePath) && fs.statSync(cookiePath).size > 0) {
-            return cookiePath;
-        }
-    } catch (error) {
-        console.warn('Cookie file not accessible:', error.message);
-    }
-    return null;
+    // Use browser cookie extraction as primary method for better YouTube bypass
+    return ['--cookies-from-browser', 'chrome'];
+}
+
+// User agent rotation for anti-bot measures
+const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0'
+];
+
+function getRandomUserAgent() {
+    return userAgents[Math.floor(Math.random() * userAgents.length)];
+}
+
+// Add random delay to avoid rate limiting
+function addRandomDelay() {
+    return new Promise(resolve => {
+        const delay = Math.floor(Math.random() * 3000) + 1000; // 1-4 seconds
+        setTimeout(resolve, delay);
+    });
 }
 import express from 'express';
 import { spawn } from 'child_process';
@@ -129,7 +143,8 @@ const corsOptions = {
           'http://127.0.0.1:3001',
           'http://127.0.0.1:5173',
           'http://127.0.0.1:8082',
-          'http://localhost:3002'
+          'http://localhost:3002',
+          'http://57.129.63.234:3001' // VPS server
         ];
     
     // Add common deployment domains if not explicitly set
@@ -170,6 +185,9 @@ app.use(cors(corsOptions));
 
 app.use(express.json({ limit: '10mb' }));
 
+// Serve static files from current directory (frontend files)
+app.use(express.static(__dirname));
+
 // Configure multer for video file uploads
 const upload = multer({
   dest: path.join(process.cwd(), 'uploads'),
@@ -198,7 +216,7 @@ if (!fs.existsSync(uploadsDir)) {
 // Check if yt-dlp is installed
 function checkYtDlp() {
   return new Promise((resolve) => {
-    const ytDlp = spawn('yt-dlp', ['--version', ...(getCookiesPath() ? ['--cookies', getCookiesPath()] : [])]);
+    const ytDlp = spawn('/home/daniel/.local/bin/yt-dlp', ['--version', ...getCookiesPath()]);
     ytDlp.on('close', (code) => {
       resolve(code === 0);
     });
@@ -523,15 +541,23 @@ app.post('/api/download-video', async (req, res) => {
         '--ignore-errors'
       ];
       
-      // Try to use cookies for YouTube authentication if available
-      if (process.env.YOUTUBE_COOKIES_FILE && fs.existsSync(process.env.YOUTUBE_COOKIES_FILE)) {
-        ytDlpArgs.push('--cookies', process.env.YOUTUBE_COOKIES_FILE);
+      // Use cookies.txt file for YouTube authentication if available
+      const cookiesPath = path.join(__dirname, 'cookies.txt');
+      if (fs.existsSync(cookiesPath)) {
+        ytDlpArgs.push('--cookies', cookiesPath);
+        console.log('🍪 Using cookies.txt for YouTube authentication');
       } else {
-        // Use alternative anti-bot measures
-        ytDlpArgs.push(
-          '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          '--referer', 'https://www.youtube.com/'
-        );
+        // Fallback to browser cookies extraction
+        try {
+          ytDlpArgs.push(...getCookiesPath());
+          console.log('🍪 Using browser cookies for YouTube authentication');
+        } catch (error) {
+          console.log('⚠️ No cookies available, using basic anti-bot measures');
+          ytDlpArgs.push(
+            '--user-agent', getRandomUserAgent(),
+            '--referer', 'https://www.youtube.com/'
+          );
+        }
       }
     } else {
       // Default arguments for other platforms
@@ -602,7 +628,7 @@ app.post('/api/download-video', async (req, res) => {
         }
       }
       
-      return spawn('yt-dlp', ytDlpArgs);
+      return spawn('/home/daniel/.local/bin/yt-dlp', ytDlpArgs);
     };
     
     ytDlp = await tryDownload();
@@ -1444,36 +1470,47 @@ app.post('/api/video-info', async (req, res) => {
   }
 
   try {
+    // Add random delay to avoid rate limiting
+    await addRandomDelay();
+    
     // Use yt-dlp to get video information without downloading
     const ytDlpArgs = [
       '--dump-json',
       '--no-playlist',
       '--no-warnings',
-      '--no-cookies',
       '--no-cache-dir',
       '--ignore-config',
       '--socket-timeout', '30',
-      '--extractor-retries', '1'
-    ,
-        ...(getCookiesPath() ? ['--cookies', getCookiesPath()] : [])
+      '--extractor-retries', '2',
+      ...getCookiesPath()
     ];
     
     // Add anti-bot measures for YouTube with fallback options
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
       ytDlpArgs.push(
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--user-agent', getRandomUserAgent(),
         '--referer', 'https://www.youtube.com/',
         '--extractor-retries', '3',
         '--fragment-retries', '3',
-        '--retry-sleep', 'linear=1::2',
-        '--sleep-interval', '1',
-        '--max-sleep-interval', '5'
+        '--retry-sleep', 'linear=1::3',
+        '--sleep-interval', '3',
+        '--max-sleep-interval', '8',
+        '--sleep-requests', '1',
+        '--sleep-subtitles', '2',
+        '--extractor-args', 'youtube:player_client=ios,mweb,tv_embedded;po_token_provider=bgutil',
+        '--geo-bypass',
+        '--geo-bypass-country', 'US'
       );
+      
+      // Add proxy if available
+      if (process.env.HTTP_PROXY) {
+        ytDlpArgs.push('--proxy', process.env.HTTP_PROXY);
+      }
     }
     
     ytDlpArgs.push(url);
 
-    const ytDlp = spawn('yt-dlp', ytDlpArgs);
+    const ytDlp = spawn('/home/daniel/.local/bin/yt-dlp', ytDlpArgs);
     let stdout = '';
     let stderr = '';
     let isResolved = false;
@@ -1538,7 +1575,7 @@ app.post('/api/video-info', async (req, res) => {
           
           // Retry with absolutely minimal arguments
           const minimalArgs = ['--dump-json', '--no-warnings', url];
-          const retryYtDlp = spawn('yt-dlp', minimalArgs);
+          const retryYtDlp = spawn('/home/daniel/.local/bin/yt-dlp', minimalArgs);
           let retryStdout = '';
           let retryStderr = '';
           
@@ -1571,40 +1608,20 @@ app.post('/api/video-info', async (req, res) => {
               }
             }
             
-            // If retry also fails, provide mock data
-            console.log('Retry also failed, providing mock data for testing');
-            const mockInfo = {
-              title: 'Rick Astley - Never Gonna Give You Up (Official Video)',
-              duration: 213,
-              durationString: '3:33',
-              uploader: 'Rick Astley',
-              thumbnail: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg',
-              description: 'The official video for Rick Astley\'s "Never Gonna Give You Up"',
-              viewCount: 1000000000,
-              uploadDate: '20091025',
-              platform: 'youtube'
-            };
-            return res.json(mockInfo);
+            // If retry also fails, return error
+            console.log('Retry also failed, returning error');
+            return res.status(500).json({ 
+              error: 'Failed to get video information after retry',
+              details: retryStderr || 'Video information could not be extracted'
+            });
           });
           
           return; // Exit early to avoid the normal error response
         }
         
-        // Check if this is a YouTube bot detection error and provide mock data for testing
-        if (stderr.includes('Sign in to confirm') && url.includes('youtube.com')) {
-          console.log('YouTube bot detection detected, providing mock data for testing');
-          const mockInfo = {
-            title: 'Iran\'s Last Great Nomads | Inside the Bakhtiari Tribe | Free Documentary',
-            duration: 2350, // 39 minutes 10 seconds (actual video duration)
-            durationString: '39:10',
-            uploader: 'Free Documentary',
-            thumbnail: 'https://i.ytimg.com/vi/d_wydBfgSpk/maxresdefault.jpg',
-            description: 'Documentary about the Bakhtiari tribe in Iran',
-            viewCount: 1000000,
-            uploadDate: '20180101',
-            platform: 'youtube'
-          };
-          return res.json(mockInfo);
+        // Log YouTube bot detection errors for debugging
+        if (stderr.includes('Sign in to confirm') && (url.includes('youtube.com') || url.includes('youtu.be'))) {
+          console.error('YouTube bot detection still occurring despite bypass measures:', stderr);
         }
         
         res.status(500).json({ 
