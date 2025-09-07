@@ -214,16 +214,55 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 // Check if yt-dlp is installed
+// Global variable to store the found yt-dlp path
+let ytDlpPath = null;
+
 function checkYtDlp() {
   return new Promise((resolve) => {
-    const ytDlp = spawn('/home/daniel/.local/bin/yt-dlp', ['--version', ...getCookiesPath()]);
-    ytDlp.on('close', (code) => {
-      resolve(code === 0);
-    });
-    ytDlp.on('error', () => {
-      resolve(false);
-    });
+    // Try different possible yt-dlp locations
+    const possiblePaths = [
+      'yt-dlp', // System PATH
+      '/usr/local/bin/yt-dlp',
+      '/usr/bin/yt-dlp',
+      '/home/daniel/.local/bin/yt-dlp', // Local development
+      './yt-dlp'
+    ];
+    
+    let pathIndex = 0;
+    
+    function tryNextPath() {
+      if (pathIndex >= possiblePaths.length) {
+        resolve(false);
+        return;
+      }
+      
+      const currentPath = possiblePaths[pathIndex];
+      const ytDlp = spawn(currentPath, ['--version']);
+      
+      ytDlp.on('close', (code) => {
+        if (code === 0) {
+          console.log(`✅ Found yt-dlp at: ${currentPath}`);
+          ytDlpPath = currentPath; // Store the working path
+          resolve(true);
+        } else {
+          pathIndex++;
+          tryNextPath();
+        }
+      });
+      
+      ytDlp.on('error', () => {
+        pathIndex++;
+        tryNextPath();
+      });
+    }
+    
+    tryNextPath();
   });
+}
+
+// Function to get the correct yt-dlp path
+function getYtDlpPath() {
+  return ytDlpPath || 'yt-dlp'; // Fallback to system PATH
 }
 
 // Function to detect production environment
@@ -637,7 +676,7 @@ app.post('/api/download-video', async (req, res) => {
         }
       }
       
-      return spawn('/home/daniel/.local/bin/yt-dlp', ytDlpArgs);
+      return spawn(getYtDlpPath(), ytDlpArgs);
     };
     
     ytDlp = await tryDownload();
@@ -1519,7 +1558,7 @@ app.post('/api/video-info', async (req, res) => {
     
     ytDlpArgs.push(url);
 
-    const ytDlp = spawn('/home/daniel/.local/bin/yt-dlp', ytDlpArgs);
+    const ytDlp = spawn(getYtDlpPath(), ytDlpArgs);
     let stdout = '';
     let stderr = '';
     let isResolved = false;
@@ -1584,7 +1623,7 @@ app.post('/api/video-info', async (req, res) => {
           
           // Retry with absolutely minimal arguments
           const minimalArgs = ['--dump-json', '--no-warnings', url];
-          const retryYtDlp = spawn('/home/daniel/.local/bin/yt-dlp', minimalArgs);
+          const retryYtDlp = spawn(getYtDlpPath(), minimalArgs);
           let retryStdout = '';
           let retryStderr = '';
           
