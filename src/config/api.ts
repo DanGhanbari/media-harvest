@@ -5,7 +5,7 @@
 // Available backend servers
 export const BACKEND_SERVERS = {
   RAILWAY: 'https://media-tools-production.up.railway.app',
-  VPS: 'http://57.129.63.234:3001',
+  VPS: 'https://57.129.63.234:3001',
   LOCAL: 'http://localhost:3001'
 } as const;
 

@@ -15,6 +15,7 @@ import archiver from 'archiver';
 import multer from 'multer';
 import { WebSocketServer } from 'ws';
 import http from 'http';
+import https from 'https';
 // Added multer for video file uploads
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -22,8 +23,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Create HTTP server
-const server = http.createServer(app);
+// SSL certificate options
+const sslOptions = {
+  key: fs.existsSync('/tmp/nginx-selfsigned.key') ? fs.readFileSync('/tmp/nginx-selfsigned.key') : null,
+  cert: fs.existsSync('/tmp/nginx-selfsigned.crt') ? fs.readFileSync('/tmp/nginx-selfsigned.crt') : null
+};
+
+// Create HTTPS server if certificates exist, otherwise HTTP
+const server = sslOptions.key && sslOptions.cert 
+  ? https.createServer(sslOptions, app)
+  : http.createServer(app);
 
 // Create WebSocket server
 const wss = new WebSocketServer({ server });
@@ -2310,7 +2319,13 @@ app.get('*', (req, res) => {
 
 // Start the server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
+  const protocol = sslOptions.key && sslOptions.cert ? 'HTTPS' : 'HTTP';
+  console.log(`Server running on ${protocol} port ${PORT}`);
+  if (protocol === 'HTTPS') {
+    console.log('✅ SSL/HTTPS enabled with self-signed certificates');
+  } else {
+    console.log('⚠️  Running HTTP only - SSL certificates not found');
+  }
   if (process.env.BACKEND_ONLY === 'true') {
     console.log(`Backend-only mode: API available at: http://localhost:${PORT}/api`);
   } else {
