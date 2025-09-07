@@ -1,5 +1,9 @@
 // Helper function to check and use cookies for yt-dlp
 function getCookiesPath() {
+    // Skip cookies in production environment (Railway) where Chrome isn't available
+    if (isProductionEnvironment()) {
+        return [];
+    }
     // Use browser cookie extraction as primary method for better YouTube bypass
     return ['--cookies-from-browser', 'chrome'];
 }
