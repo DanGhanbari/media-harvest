@@ -19,8 +19,8 @@ const getApiBaseUrl = (): string => {
     return BACKEND_SERVERS.LOCAL;
   }
 
-  // In production, use VPS server directly
-  return BACKEND_SERVERS.VPS;
+  // In production, use Railway server for HTTPS support
+  return BACKEND_SERVERS.RAILWAY;
 };
 
 
