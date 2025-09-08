@@ -1635,35 +1635,39 @@ app.post('/api/video-info', async (req, res) => {
         // Enhanced fallback system for YouTube bot detection and other errors
         if ((url.includes('youtube.com') || url.includes('youtu.be')) && 
             (stderr.includes('Sign in to confirm') || stderr.includes('could not find chrome cookies database') || 
-             stderr.includes('bot') || stderr.includes('429') || stderr.includes('403'))) {
+             stderr.includes('bot') || stderr.includes('429') || stderr.includes('403') ||
+             stderr.includes('Failed to extract any player response') || stderr.includes('please report this issue'))) {
           
           console.log('YouTube access issue detected, trying fallback strategies');
           
-          // Strategy 1: Try with mobile client and minimal options
-          const mobileArgs = [
+          // Strategy 1: Try with Android TV client (most effective bypass)
+          const androidTvArgs = [
             '--dump-json', '--no-warnings', '--no-cache-dir',
-            '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-            '--extractor-args', 'youtube:player_client=ios',
-            '--sleep-interval', '5',
+            '--user-agent', 'com.google.android.apps.youtube.unplugged/6.03 (Linux; U; Android 9) gzip',
+            '--extractor-args', 'youtube:player_client=android_tv,web',
+            '--add-header', 'X-YouTube-Client-Name:56',
+            '--add-header', 'X-YouTube-Client-Version:6.03',
+            '--socket-timeout', '30',
+            '--sleep-interval', '3',
             url
           ];
           
-          const mobileYtDlp = spawn(getYtDlpPath(), mobileArgs);
-          let mobileStdout = '';
-          let mobileStderr = '';
+          const androidTvYtDlp = spawn(getYtDlpPath(), androidTvArgs);
+          let androidTvStdout = '';
+          let androidTvStderr = '';
           
-          mobileYtDlp.stdout.on('data', (data) => {
-            mobileStdout += data.toString();
+          androidTvYtDlp.stdout.on('data', (data) => {
+            androidTvStdout += data.toString();
           });
           
-          mobileYtDlp.stderr.on('data', (data) => {
-            mobileStderr += data.toString();
+          androidTvYtDlp.stderr.on('data', (data) => {
+            androidTvStderr += data.toString();
           });
           
-          mobileYtDlp.on('close', (mobileCode) => {
-            if (mobileCode === 0 && mobileStdout.trim()) {
+          androidTvYtDlp.on('close', (androidTvCode) => {
+            if (androidTvCode === 0 && androidTvStdout.trim()) {
               try {
-                const videoInfo = JSON.parse(mobileStdout.trim());
+                const videoInfo = JSON.parse(androidTvStdout.trim());
                 const info = {
                   title: videoInfo.title || 'Unknown Title',
                   duration: videoInfo.duration || 0,
@@ -1675,15 +1679,15 @@ app.post('/api/video-info', async (req, res) => {
                   uploadDate: videoInfo.upload_date,
                   platform: detectPlatform(url)
                 };
-                console.log('Mobile client strategy succeeded');
+                console.log('Android TV client strategy succeeded');
                 return res.json(info);
               } catch (parseError) {
-                console.error('Error parsing mobile strategy JSON:', parseError);
+                console.error('Error parsing Android TV strategy JSON:', parseError);
               }
             }
             
             // Strategy 2: Try with absolutely minimal arguments
-            console.log('Mobile strategy failed, trying minimal strategy');
+            console.log('Android TV strategy failed, trying minimal strategy');
             const minimalArgs = ['--dump-json', '--no-warnings', '--ignore-config', url];
             const minimalYtDlp = spawn(getYtDlpPath(), minimalArgs);
             let minimalStdout = '';
