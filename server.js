@@ -8,14 +8,16 @@ function getCookiesPath() {
     return ['--cookies-from-browser', 'chrome'];
 }
 
-// User agent rotation for anti-bot measures
+// User agent rotation for anti-bot measures - updated to latest versions
 const userAgents = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0'
-];
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+]
 
 function getRandomUserAgent() {
     return userAgents[Math.floor(Math.random() * userAgents.length)];
@@ -1537,21 +1539,30 @@ app.post('/api/video-info', async (req, res) => {
       ...getCookiesPath()
     ];
     
-    // Add anti-bot measures for YouTube with fallback options
+    // Add enhanced anti-bot measures for YouTube with multiple fallback strategies
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
       ytDlpArgs.push(
         '--user-agent', getRandomUserAgent(),
         '--referer', 'https://www.youtube.com/',
-        '--extractor-retries', '3',
-        '--fragment-retries', '3',
-        '--retry-sleep', 'linear=1::3',
-        '--sleep-interval', '3',
-        '--max-sleep-interval', '8',
-        '--sleep-requests', '1',
-        '--sleep-subtitles', '2',
-        '--extractor-args', 'youtube:player_client=ios,mweb,tv_embedded;po_token_provider=bgutil',
+        '--extractor-retries', '5',
+        '--fragment-retries', '5',
+        '--retry-sleep', 'exp=1:120',
+        '--sleep-interval', '2',
+        '--max-sleep-interval', '15',
+        '--sleep-requests', '2',
+        '--sleep-subtitles', '3',
+        // Use multiple client strategies for better success rate
+        '--extractor-args', 'youtube:player_client=ios,mweb,tv_embedded,android;skip=hls,dash;innertube_host=studio.youtube.com',
         '--geo-bypass',
-        '--geo-bypass-country', 'US'
+        '--geo-bypass-country', 'US',
+        // Additional headers to mimic real browser behavior
+        '--add-header', 'Accept-Language:en-US,en;q=0.9',
+        '--add-header', 'Accept-Encoding:gzip, deflate, br',
+        '--add-header', 'DNT:1',
+        '--add-header', 'Upgrade-Insecure-Requests:1',
+        // Disable some features that might trigger detection
+        '--no-check-certificate',
+        '--prefer-insecure'
       );
       
       // Add proxy if available
@@ -1621,28 +1632,38 @@ app.post('/api/video-info', async (req, res) => {
       } else {
         console.error('yt-dlp stderr:', stderr);
         
-        // Check if this is a Chrome cookie error and retry without any browser-specific options
-        if (stderr.includes('could not find chrome cookies database') && url.includes('youtube.com')) {
-          console.log('Chrome cookie error detected, retrying with minimal options');
+        // Enhanced fallback system for YouTube bot detection and other errors
+        if ((url.includes('youtube.com') || url.includes('youtu.be')) && 
+            (stderr.includes('Sign in to confirm') || stderr.includes('could not find chrome cookies database') || 
+             stderr.includes('bot') || stderr.includes('429') || stderr.includes('403'))) {
           
-          // Retry with absolutely minimal arguments
-          const minimalArgs = ['--dump-json', '--no-warnings', url];
-          const retryYtDlp = spawn(getYtDlpPath(), minimalArgs);
-          let retryStdout = '';
-          let retryStderr = '';
+          console.log('YouTube access issue detected, trying fallback strategies');
           
-          retryYtDlp.stdout.on('data', (data) => {
-            retryStdout += data.toString();
+          // Strategy 1: Try with mobile client and minimal options
+          const mobileArgs = [
+            '--dump-json', '--no-warnings', '--no-cache-dir',
+            '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+            '--extractor-args', 'youtube:player_client=ios',
+            '--sleep-interval', '5',
+            url
+          ];
+          
+          const mobileYtDlp = spawn(getYtDlpPath(), mobileArgs);
+          let mobileStdout = '';
+          let mobileStderr = '';
+          
+          mobileYtDlp.stdout.on('data', (data) => {
+            mobileStdout += data.toString();
           });
           
-          retryYtDlp.stderr.on('data', (data) => {
-            retryStderr += data.toString();
+          mobileYtDlp.stderr.on('data', (data) => {
+            mobileStderr += data.toString();
           });
           
-          retryYtDlp.on('close', (retryCode) => {
-            if (retryCode === 0 && retryStdout.trim()) {
+          mobileYtDlp.on('close', (mobileCode) => {
+            if (mobileCode === 0 && mobileStdout.trim()) {
               try {
-                const videoInfo = JSON.parse(retryStdout.trim());
+                const videoInfo = JSON.parse(mobileStdout.trim());
                 const info = {
                   title: videoInfo.title || 'Unknown Title',
                   duration: videoInfo.duration || 0,
@@ -1654,17 +1675,57 @@ app.post('/api/video-info', async (req, res) => {
                   uploadDate: videoInfo.upload_date,
                   platform: detectPlatform(url)
                 };
+                console.log('Mobile client strategy succeeded');
                 return res.json(info);
               } catch (parseError) {
-                console.error('Error parsing retry video info JSON:', parseError);
+                console.error('Error parsing mobile strategy JSON:', parseError);
               }
             }
             
-            // If retry also fails, return error
-            console.log('Retry also failed, returning error');
-            return res.status(500).json({ 
-              error: 'Failed to get video information after retry',
-              details: retryStderr || 'Video information could not be extracted'
+            // Strategy 2: Try with absolutely minimal arguments
+            console.log('Mobile strategy failed, trying minimal strategy');
+            const minimalArgs = ['--dump-json', '--no-warnings', '--ignore-config', url];
+            const minimalYtDlp = spawn(getYtDlpPath(), minimalArgs);
+            let minimalStdout = '';
+            let minimalStderr = '';
+            
+            minimalYtDlp.stdout.on('data', (data) => {
+              minimalStdout += data.toString();
+            });
+            
+            minimalYtDlp.stderr.on('data', (data) => {
+              minimalStderr += data.toString();
+            });
+            
+            minimalYtDlp.on('close', (minimalCode) => {
+              if (minimalCode === 0 && minimalStdout.trim()) {
+                try {
+                  const videoInfo = JSON.parse(minimalStdout.trim());
+                  const info = {
+                    title: videoInfo.title || 'Unknown Title',
+                    duration: videoInfo.duration || 0,
+                    durationString: videoInfo.duration_string || '0:00',
+                    uploader: videoInfo.uploader || videoInfo.channel || 'Unknown',
+                    thumbnail: videoInfo.thumbnail,
+                    description: videoInfo.description,
+                    viewCount: videoInfo.view_count,
+                    uploadDate: videoInfo.upload_date,
+                    platform: detectPlatform(url)
+                  };
+                  console.log('Minimal strategy succeeded');
+                  return res.json(info);
+                } catch (parseError) {
+                  console.error('Error parsing minimal strategy JSON:', parseError);
+                }
+              }
+              
+              // All strategies failed
+              console.log('All fallback strategies failed');
+              return res.status(500).json({ 
+                error: 'Failed to get video information - YouTube access restricted',
+                details: 'YouTube is currently blocking access. This may be due to rate limiting or enhanced bot detection. Please try again later.',
+                suggestion: 'Consider using a different video URL or try again in a few minutes.'
+              });
             });
           });
           
