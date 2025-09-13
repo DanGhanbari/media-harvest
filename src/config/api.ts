@@ -11,10 +11,10 @@ export const BACKEND_SERVERS = {
 
 // Get the API base URL from environment variables
 const getApiBaseUrl = (): string => {
-  // Check if we're in development mode
-  const isDevelopment = import.meta.env.DEV;
+  // Check if we're in development mode or running locally
+  const isDevelopment = import.meta.env.DEV || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   
-  // In development, use local backend for testing
+  // In development or local environment, use local backend
   if (isDevelopment) {
     return BACKEND_SERVERS.LOCAL;
   }

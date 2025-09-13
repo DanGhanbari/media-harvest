@@ -1,34 +1,339 @@
-// Helper function to check and use cookies for yt-dlp
-function getCookiesPath() {
-    // Skip cookies in production environment (Railway) where Chrome isn't available
-    if (isProductionEnvironment()) {
-        return [];
+// Advanced YouTube bypass system with multiple strategies
+class YouTubeBypassManager {
+    constructor() {
+        this.sessionCache = new Map();
+        this.proxyRotation = 0;
+        this.clientRotation = 0;
+        this.lastRequestTime = 0;
+        this.requestCount = 0;
+        this.cookieJar = null;
+        this.initializeCookieJar();
     }
-    // Use browser cookie extraction as primary method for better YouTube bypass
-    return ['--cookies-from-browser', 'chrome'];
+
+    async initializeCookieJar() {
+        // Create persistent cookie storage
+        const cookieDir = path.join(process.cwd(), '.cookies');
+        if (!fs.existsSync(cookieDir)) {
+            fs.mkdirSync(cookieDir, { recursive: true });
+        }
+        this.cookieJar = path.join(cookieDir, 'youtube_session.txt');
+    }
+
+    // Enhanced cookie authentication with session persistence
+    getCookiesPath() {
+        const cookieOptions = [];
+        
+        // Try multiple cookie sources in order of preference
+        if (!isProductionEnvironment()) {
+            // Local development - use browser cookies
+            cookieOptions.push('--cookies-from-browser', 'chrome');
+        } else {
+            // Production - use persistent cookie jar if available
+            if (fs.existsSync(this.cookieJar)) {
+                cookieOptions.push('--cookies', this.cookieJar);
+            }
+        }
+        
+        return cookieOptions;
+    }
+
+    // Advanced user agent rotation with realistic fingerprints
+    getAdvancedUserAgent() {
+        const browsers = [
+            {
+                ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                headers: {
+                    'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                    'sec-ch-ua-platform': '"Windows"',
+                    'sec-ch-ua-mobile': '?0'
+                }
+            },
+            {
+                ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                headers: {
+                    'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                    'sec-ch-ua-platform': '"macOS"',
+                    'sec-ch-ua-mobile': '?0'
+                }
+            },
+            {
+                ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0',
+                headers: {
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5'
+                }
+            },
+            {
+                ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1',
+                headers: {
+                    'sec-ch-ua-mobile': '?1',
+                    'sec-ch-ua-platform': '"iOS"'
+                }
+            }
+        ];
+        
+        return browsers[Math.floor(Math.random() * browsers.length)];
+    }
+
+    // Request fingerprint randomization
+    generateRequestFingerprint() {
+        const now = Date.now();
+        const timeSinceLastRequest = now - this.lastRequestTime;
+        
+        // Implement realistic request timing
+        const minDelay = 2000 + Math.random() * 3000; // 2-5 seconds
+        const adaptiveDelay = this.requestCount > 5 ? minDelay * 1.5 : minDelay;
+        
+        this.lastRequestTime = now;
+        this.requestCount++;
+        
+        return {
+            delay: adaptiveDelay,
+            sessionId: `yt_session_${Math.random().toString(36).substr(2, 9)}`,
+            requestId: `req_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
+        };
+    }
+
+    // Advanced client strategy rotation
+    getClientStrategy() {
+        const strategies = [
+            {
+                name: 'android_tv_aggressive',
+                args: [
+                    '--extractor-args', 'youtube:player_client=android_tv,android_creator,android_vr',
+                    '--add-header', 'X-YouTube-Client-Name:56',
+                    '--add-header', 'X-YouTube-Client-Version:8.49.0',
+                    '--user-agent', 'com.google.android.apps.youtube.unplugged/8.49.0 (Linux; U; Android 13) gzip'
+                ]
+            },
+            {
+                name: 'ios_music',
+                args: [
+                    '--extractor-args', 'youtube:player_client=ios_music,ios_creator',
+                    '--add-header', 'X-YouTube-Client-Name:26',
+                    '--add-header', 'X-YouTube-Client-Version:6.42.52',
+                    '--user-agent', 'com.google.ios.youtubemusic/6.42.52 (iPhone16,2; U; CPU iOS 17_6 like Mac OS X)'
+                ]
+            },
+            {
+                name: 'web_embedded_bypass',
+                args: [
+                    '--extractor-args', 'youtube:player_client=web_embedded,web_creator',
+                    '--add-header', 'Origin:https://www.youtube.com',
+                    '--add-header', 'Referer:https://www.youtube.com/embed/',
+                    '--add-header', 'X-YouTube-Client-Name:56'
+                ]
+            },
+            {
+                name: 'tv_html5_bypass',
+                args: [
+                    '--extractor-args', 'youtube:player_client=tv_embedded,web_embedded',
+                    '--add-header', 'X-YouTube-Client-Name:85',
+                    '--add-header', 'X-YouTube-Client-Version:2.0',
+                    '--user-agent', 'Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.0 TV Safari/537.36'
+                ]
+            }
+        ];
+        
+        this.clientRotation = (this.clientRotation + 1) % strategies.length;
+        return strategies[this.clientRotation];
+    }
+
+    // Proxy rotation system
+    getProxyConfig() {
+        const proxies = [
+            process.env.HTTP_PROXY,
+            process.env.HTTPS_PROXY,
+            process.env.SOCKS_PROXY,
+            // Add more proxy endpoints as needed
+        ].filter(Boolean);
+        
+        if (proxies.length === 0) return [];
+        
+        this.proxyRotation = (this.proxyRotation + 1) % proxies.length;
+        return ['--proxy', proxies[this.proxyRotation]];
+    }
+
+    // Session persistence and caching
+    getSessionArgs(url) {
+        const urlHash = crypto.createHash('md5').update(url).digest('hex');
+        const sessionKey = `session_${urlHash}`;
+        
+        if (this.sessionCache.has(sessionKey)) {
+            const session = this.sessionCache.get(sessionKey);
+            if (Date.now() - session.timestamp < 300000) { // 5 minutes
+                return session.args;
+            }
+        }
+        
+        const fingerprint = this.generateRequestFingerprint();
+        const browser = this.getAdvancedUserAgent();
+        const strategy = this.getClientStrategy();
+        const proxy = this.getProxyConfig();
+        
+        const sessionArgs = [
+            '--user-agent', browser.ua,
+            '--add-header', 'Accept-Language:en-US,en;q=0.9,es;q=0.8',
+            '--add-header', 'Accept-Encoding:gzip, deflate, br, zstd',
+            '--add-header', 'DNT:1',
+            '--add-header', 'Upgrade-Insecure-Requests:1',
+            '--add-header', 'Sec-Fetch-Dest:document',
+            '--add-header', 'Sec-Fetch-Mode:navigate',
+            '--add-header', 'Sec-Fetch-Site:none',
+            '--add-header', 'Sec-Fetch-User:?1',
+            ...strategy.args,
+            ...proxy
+        ];
+        
+        // Add browser-specific headers
+        Object.entries(browser.headers || {}).forEach(([key, value]) => {
+            sessionArgs.push('--add-header', `${key}:${value}`);
+        });
+        
+        this.sessionCache.set(sessionKey, {
+            args: sessionArgs,
+            timestamp: Date.now(),
+            strategy: strategy.name,
+            fingerprint
+        });
+        
+        return sessionArgs;
+    }
+
+    // Adaptive delay based on request history
+    async addAdaptiveDelay() {
+        const fingerprint = this.generateRequestFingerprint();
+        await new Promise(resolve => setTimeout(resolve, fingerprint.delay));
+        return fingerprint;
+    }
+
+    // Browser automation fallback using Puppeteer
+    async extractWithBrowser(url) {
+        let browser = null;
+        try {
+            console.log('Attempting browser automation extraction for:', url);
+            
+            browser = await puppeteer.launch({
+                headless: 'new',
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--disable-gpu',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+                ],
+                timeout: 30000
+            });
+
+            const page = await browser.newPage();
+            
+            // Set realistic viewport and headers
+            await page.setViewport({ width: 1920, height: 1080 });
+            await page.setExtraHTTPHeaders({
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Upgrade-Insecure-Requests': '1'
+            });
+
+            // Navigate to YouTube video
+            await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+            
+            // Wait for video player to load
+            await page.waitForSelector('video', { timeout: 15000 });
+            
+            // Extract video information
+            const videoInfo = await page.evaluate(() => {
+                const video = document.querySelector('video');
+                const titleElement = document.querySelector('h1.ytd-watch-metadata yt-formatted-string, h1.title');
+                const uploaderElement = document.querySelector('#owner-name a, .ytd-channel-name a');
+                const descriptionElement = document.querySelector('#description-text, .description');
+                const viewCountElement = document.querySelector('#info-text, .view-count');
+                
+                return {
+                    title: titleElement?.textContent?.trim() || 'Unknown Title',
+                    duration: video?.duration || 0,
+                    durationString: video?.duration ? new Date(video.duration * 1000).toISOString().substr(11, 8) : '0:00',
+                    uploader: uploaderElement?.textContent?.trim() || 'Unknown',
+                    description: descriptionElement?.textContent?.trim() || '',
+                    viewCount: viewCountElement?.textContent?.trim() || '0',
+                    thumbnail: video?.poster || '',
+                    platform: 'YouTube'
+                };
+            });
+
+            console.log('Browser automation extraction successful');
+            return videoInfo;
+            
+        } catch (error) {
+            console.error('Browser automation failed:', error.message);
+            throw error;
+        } finally {
+            if (browser) {
+                await browser.close();
+            }
+        }
+    }
+
+    // Enhanced cookie extraction from browser session
+    async extractAndSaveCookies(url) {
+        let browser = null;
+        try {
+            console.log('Extracting fresh cookies from browser session');
+            
+            browser = await puppeteer.launch({
+                headless: false, // Show browser for cookie consent
+                args: ['--no-sandbox', '--disable-setuid-sandbox'],
+                timeout: 30000
+            });
+
+            const page = await browser.newPage();
+            await page.goto('https://www.youtube.com', { waitUntil: 'networkidle2' });
+            
+            // Wait for user to handle any cookie consent or login
+            console.log('Waiting 10 seconds for cookie consent/login...');
+            await new Promise(resolve => setTimeout(resolve, 10000));
+            
+            // Extract cookies
+            const cookies = await page.cookies();
+            
+            // Save cookies to file
+            const cookieString = cookies.map(cookie => 
+                `${cookie.domain}\t${cookie.httpOnly ? 'TRUE' : 'FALSE'}\t${cookie.path}\t${cookie.secure ? 'TRUE' : 'FALSE'}\t${Math.floor(cookie.expires || Date.now() / 1000 + 86400)}\t${cookie.name}\t${cookie.value}`
+            ).join('\n');
+            
+            fs.writeFileSync(this.cookieJar, cookieString);
+            console.log('Cookies saved successfully');
+            
+        } catch (error) {
+            console.error('Cookie extraction failed:', error.message);
+        } finally {
+            if (browser) {
+                await browser.close();
+            }
+        }
+    }
 }
 
-// User agent rotation for anti-bot measures - updated to latest versions
-const userAgents = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0',
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-    'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
-]
+// Initialize the bypass manager
+const youtubeBypass = new YouTubeBypassManager();
+
+// Legacy functions for backward compatibility
+function getCookiesPath() {
+    return youtubeBypass.getCookiesPath();
+}
 
 function getRandomUserAgent() {
-    return userAgents[Math.floor(Math.random() * userAgents.length)];
+    return youtubeBypass.getAdvancedUserAgent().ua;
 }
 
-// Add random delay to avoid rate limiting
 function addRandomDelay() {
-    return new Promise(resolve => {
-        const delay = Math.floor(Math.random() * 3000) + 1000; // 1-4 seconds
-        setTimeout(resolve, delay);
-    });
+    return youtubeBypass.addAdaptiveDelay();
 }
 import express from 'express';
 import { spawn } from 'child_process';
@@ -41,7 +346,13 @@ import archiver from 'archiver';
 import multer from 'multer';
 import { WebSocketServer } from 'ws';
 import http from 'http';
-// Added multer for video file uploads
+import crypto from 'crypto';
+import puppeteer from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+// Added multer for video file uploads and Puppeteer for browser automation
+
+// Configure Puppeteer with stealth plugin
+puppeteer.use(StealthPlugin());
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1345,7 +1656,10 @@ app.post('/api/download-video', async (req, res) => {
             
             // Send file as download
             const finalFilename = filename || sortedFiles[0];
-            res.setHeader('Content-Disposition', `attachment; filename="${finalFilename}"`);
+            // Properly encode filename for Content-Disposition header - sanitize all non-ASCII and special characters
+            const sanitizedFilename = finalFilename.replace(/[^\w\s.-]/g, '_').replace(/\s+/g, '_');
+            const encodedFilename = encodeURIComponent(sanitizedFilename).replace(/'/g, '%27');
+            res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}; filename="${sanitizedFilename}"`);
             res.setHeader('Content-Type', 'application/octet-stream');
             res.setHeader('Content-Length', stats.size);
             
@@ -1503,7 +1817,63 @@ app.get('/api/health', async (req, res) => {
   res.json({ 
     status: 'ok',
     ytDlpAvailable,
-    message: ytDlpAvailable ? 'yt-dlp is available' : 'yt-dlp is not installed'
+    message: ytDlpAvailable ? 'yt-dlp is available' : 'yt-dlp is not installed',
+    bypassFeatures: {
+      advancedFingerprinting: true,
+      sessionPersistence: true,
+      browserAutomation: true,
+      cookieExtraction: true,
+      proxyRotation: !!process.env.HTTP_PROXY,
+      multiClientStrategies: true
+    }
+  });
+});
+
+// Manual cookie extraction endpoint for YouTube bypass
+app.post('/api/extract-cookies', async (req, res) => {
+  try {
+    console.log('Manual cookie extraction requested');
+    await youtubeBypass.extractAndSaveCookies('https://www.youtube.com');
+    res.json({ 
+      success: true, 
+      message: 'Cookies extracted successfully. This will improve YouTube access for future requests.',
+      cookieJarPath: youtubeBypass.cookieJar
+    });
+  } catch (error) {
+    console.error('Manual cookie extraction failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Cookie extraction failed', 
+      details: error.message 
+    });
+  }
+});
+
+// Bypass system status endpoint
+app.get('/api/bypass-status', (req, res) => {
+  const sessionCount = youtubeBypass.sessionCache.size;
+  const cookieExists = fs.existsSync(youtubeBypass.cookieJar);
+  
+  res.json({
+    sessionCache: {
+      activeSessions: sessionCount,
+      maxAge: '5 minutes'
+    },
+    cookies: {
+      available: cookieExists,
+      path: youtubeBypass.cookieJar,
+      lastModified: cookieExists ? fs.statSync(youtubeBypass.cookieJar).mtime : null
+    },
+    proxies: {
+      configured: !!process.env.HTTP_PROXY || !!process.env.HTTPS_PROXY || !!process.env.SOCKS_PROXY,
+      httpProxy: !!process.env.HTTP_PROXY,
+      httpsProxy: !!process.env.HTTPS_PROXY,
+      socksProxy: !!process.env.SOCKS_PROXY
+    },
+    requestStats: {
+      totalRequests: youtubeBypass.requestCount,
+      lastRequestTime: youtubeBypass.lastRequestTime
+    }
   });
 });
 
@@ -1539,36 +1909,37 @@ app.post('/api/video-info', async (req, res) => {
       ...getCookiesPath()
     ];
     
-    // Add enhanced anti-bot measures for YouTube with multiple fallback strategies
+    // Add enhanced anti-bot measures for YouTube with advanced bypass system
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      console.log('YouTube URL detected, applying advanced bypass techniques');
+      
+      // Get advanced session arguments with fingerprint randomization
+      const sessionArgs = youtubeBypass.getSessionArgs(url);
+      ytDlpArgs.push(...sessionArgs);
+      
+      // Enhanced YouTube-specific arguments
       ytDlpArgs.push(
-        '--user-agent', getRandomUserAgent(),
         '--referer', 'https://www.youtube.com/',
-        '--extractor-retries', '5',
-        '--fragment-retries', '5',
-        '--retry-sleep', 'exp=1:120',
-        '--sleep-interval', '2',
-        '--max-sleep-interval', '15',
-        '--sleep-requests', '2',
-        '--sleep-subtitles', '3',
-        // Use multiple client strategies for better success rate
-        '--extractor-args', 'youtube:player_client=ios,mweb,tv_embedded,android;skip=hls,dash;innertube_host=studio.youtube.com',
+        '--extractor-retries', '8',
+        '--fragment-retries', '10',
+        '--retry-sleep', 'exp=1:180',
+        '--sleep-interval', '3',
+        '--max-sleep-interval', '20',
+        '--sleep-requests', '3',
+        '--sleep-subtitles', '4',
+        // Advanced geo-bypass
         '--geo-bypass',
-        '--geo-bypass-country', 'US',
-        // Additional headers to mimic real browser behavior
-        '--add-header', 'Accept-Language:en-US,en;q=0.9',
-        '--add-header', 'Accept-Encoding:gzip, deflate, br',
-        '--add-header', 'DNT:1',
-        '--add-header', 'Upgrade-Insecure-Requests:1',
-        // Disable some features that might trigger detection
+        // Enhanced security bypass
         '--no-check-certificate',
-        '--prefer-insecure'
+        '--prefer-insecure',
+        '--ignore-errors',
+        // Advanced caching and performance
+        '--write-pages',
+        '--write-info-json',
+        '--clean-info-json'
       );
       
-      // Add proxy if available
-      if (process.env.HTTP_PROXY) {
-        ytDlpArgs.push('--proxy', process.env.HTTP_PROXY);
-      }
+      console.log(`Using bypass strategy: ${youtubeBypass.sessionCache.get(`session_${crypto.createHash('md5').update(url).digest('hex')}`)?.strategy || 'default'}`);
     }
     
     ytDlpArgs.push(url);
@@ -1643,12 +2014,13 @@ app.post('/api/video-info', async (req, res) => {
           // Strategy 1: Try with Android TV client (most effective bypass)
           const androidTvArgs = [
             '--dump-json', '--no-warnings', '--no-cache-dir',
-            '--user-agent', 'com.google.android.apps.youtube.unplugged/6.03 (Linux; U; Android 9) gzip',
-            '--extractor-args', 'youtube:player_client=android_tv,web',
+            '--user-agent', 'com.google.android.apps.youtube.unplugged/8.49.0 (Linux; U; Android 13) gzip',
+            '--extractor-args', 'youtube:player_client=android_tv',
             '--add-header', 'X-YouTube-Client-Name:56',
-            '--add-header', 'X-YouTube-Client-Version:6.03',
-            '--socket-timeout', '30',
-            '--sleep-interval', '3',
+            '--add-header', 'X-YouTube-Client-Version:8.49.0',
+            '--socket-timeout', '60',
+            '--retries', '3',
+            '--sleep-interval', '2',
             url
           ];
           
@@ -1686,9 +2058,56 @@ app.post('/api/video-info', async (req, res) => {
               }
             }
             
-            // Strategy 2: Try with absolutely minimal arguments
-            console.log('Android TV strategy failed, trying minimal strategy');
-            const minimalArgs = ['--dump-json', '--no-warnings', '--ignore-config', url];
+            // Strategy 2: Try with web embed client
+            console.log('Android TV strategy failed, trying web embed strategy');
+            const webEmbedArgs = [
+              '--dump-json', '--no-warnings', '--no-cache-dir',
+              '--extractor-args', 'youtube:player_client=web_embedded',
+              '--user-agent', getRandomUserAgent(),
+              '--socket-timeout', '60',
+              '--retries', '2',
+              url
+            ];
+            
+            const webEmbedYtDlp = spawn(getYtDlpPath(), webEmbedArgs);
+            let webEmbedStdout = '';
+            let webEmbedStderr = '';
+            
+            webEmbedYtDlp.stdout.on('data', (data) => {
+              webEmbedStdout += data.toString();
+            });
+            
+            webEmbedYtDlp.stderr.on('data', (data) => {
+              webEmbedStderr += data.toString();
+            });
+            
+            webEmbedYtDlp.on('close', (webEmbedCode) => {
+              if (webEmbedCode === 0 && webEmbedStdout.trim()) {
+                try {
+                  const videoInfo = JSON.parse(webEmbedStdout.trim());
+                  const info = {
+                    title: videoInfo.title || 'Unknown Title',
+                    duration: videoInfo.duration || 0,
+                    durationString: videoInfo.duration_string || '0:00',
+                    uploader: videoInfo.uploader || videoInfo.channel || 'Unknown',
+                    thumbnail: videoInfo.thumbnail,
+                    description: videoInfo.description,
+                    viewCount: videoInfo.view_count,
+                    uploadDate: videoInfo.upload_date,
+                    platform: detectPlatform(url)
+                  };
+                  console.log('Web embed strategy succeeded');
+                  return res.json(info);
+                } catch (parseError) {
+                  console.error('Error parsing web embed strategy JSON:', parseError);
+                }
+              }
+              
+              // Strategy 3: Try with absolutely minimal arguments
+               console.log('Web embed strategy failed, trying minimal strategy');
+             });
+             
+             const minimalArgs = ['--dump-json', '--no-warnings', '--ignore-config', url];
             const minimalYtDlp = spawn(getYtDlpPath(), minimalArgs);
             let minimalStdout = '';
             let minimalStderr = '';
@@ -1723,13 +2142,53 @@ app.post('/api/video-info', async (req, res) => {
                 }
               }
               
-              // All strategies failed
-              console.log('All fallback strategies failed');
-              return res.status(500).json({ 
-                error: 'Failed to get video information - YouTube access restricted',
-                details: 'YouTube is currently blocking access. This may be due to rate limiting or enhanced bot detection. Please try again later.',
-                suggestion: 'Consider using a different video URL or try again in a few minutes.'
-              });
+              // Strategy 4: Ultimate fallback - Browser automation
+              console.log('All yt-dlp strategies failed, trying browser automation as ultimate fallback');
+              
+              youtubeBypass.extractWithBrowser(url)
+                .then(browserInfo => {
+                  console.log('Browser automation strategy succeeded');
+                  return res.json(browserInfo);
+                })
+                .catch(browserError => {
+                  console.error('Browser automation also failed:', browserError.message);
+                  
+                  // Absolutely final fallback - try to extract fresh cookies and retry
+                  console.log('Attempting cookie refresh as last resort');
+                  youtubeBypass.extractAndSaveCookies(url)
+                    .then(() => {
+                      console.log('Cookie refresh completed, but video info extraction still failed');
+                      return res.status(500).json({ 
+                        error: 'Failed to get video information - All bypass methods exhausted',
+                        details: 'YouTube is currently blocking all access methods including browser automation. This may be due to severe rate limiting or enhanced bot detection.',
+                        suggestion: 'Please try again in 15-30 minutes, or consider using a different video URL.',
+                        bypassAttempts: {
+                          advancedYtDlp: 'failed',
+                          androidTv: 'failed', 
+                          webEmbed: 'failed',
+                          minimal: 'failed',
+                          browserAutomation: 'failed',
+                          cookieRefresh: 'completed'
+                        }
+                      });
+                    })
+                    .catch(cookieError => {
+                      console.error('Cookie refresh also failed:', cookieError.message);
+                      return res.status(500).json({ 
+                        error: 'Failed to get video information - Complete bypass failure',
+                        details: 'All bypass methods including browser automation and cookie refresh have failed. YouTube access is severely restricted.',
+                        suggestion: 'Please try again later or contact support if this persists.',
+                        bypassAttempts: {
+                          advancedYtDlp: 'failed',
+                          androidTv: 'failed',
+                          webEmbed: 'failed', 
+                          minimal: 'failed',
+                          browserAutomation: 'failed',
+                          cookieRefresh: 'failed'
+                        }
+                      });
+                    });
+                });
             });
           });
           
