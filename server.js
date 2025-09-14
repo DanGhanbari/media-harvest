@@ -639,8 +639,8 @@ app.use(cors(corsOptions));
 
 app.use(express.json({ limit: '10mb' }));
 
-// Serve static files from current directory (frontend files)
-app.use(express.static(__dirname));
+// Serve static files from current directory (frontend files) - DISABLED to use dist folder instead
+// app.use(express.static(__dirname));
 
 // Configure multer for video file uploads
 const upload = multer({
@@ -2031,52 +2031,24 @@ app.post('/api/video-info', async (req, res) => {
   }
 
   try {
-    // Add random delay to avoid rate limiting
-    await addRandomDelay();
-    
-    // Use yt-dlp to get video information without downloading
+    // Use simplified yt-dlp arguments to avoid hanging
     const ytDlpArgs = [
       '--dump-json',
+      '--no-download',
+      '--skip-download',
       '--no-playlist',
       '--no-warnings',
-      '--no-cache-dir',
-      '--ignore-config',
-      '--socket-timeout', '30',
-      '--extractor-retries', '2',
-      ...getCookiesPath()
+      '--socket-timeout', '15',
+      '--extractor-retries', '1',
+      '--format', 'best[height<=720]'
     ];
     
-    // Add enhanced anti-bot measures for YouTube with advanced bypass system
+    // Add basic YouTube bypass if needed
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      console.log('YouTube URL detected, applying advanced bypass techniques');
-      
-      // Get advanced session arguments with fingerprint randomization
-      const sessionArgs = youtubeBypass.getSessionArgs(url);
-      ytDlpArgs.push(...sessionArgs);
-      
-      // Enhanced YouTube-specific arguments
+      console.log('YouTube URL detected, applying basic bypass');
       ytDlpArgs.push(
-        '--referer', 'https://www.youtube.com/',
-        '--extractor-retries', '8',
-        '--fragment-retries', '10',
-        '--retry-sleep', 'exp=1:180',
-        '--sleep-interval', '3',
-        '--max-sleep-interval', '20',
-        '--sleep-requests', '3',
-        '--sleep-subtitles', '4',
-        // Advanced geo-bypass
-        '--geo-bypass',
-        // Enhanced security bypass
-        '--no-check-certificate',
-        '--prefer-insecure',
-        '--ignore-errors',
-        // Advanced caching and performance
-        '--write-pages',
-        '--write-info-json',
-        '--clean-info-json'
+        '--extractor-args', 'youtube:player_client=web'
       );
-      
-      console.log(`Using bypass strategy: ${youtubeBypass.sessionCache.get(`session_${crypto.createHash('md5').update(url).digest('hex')}`)?.strategy || 'default'}`);
     }
     
     ytDlpArgs.push(url);
@@ -2086,7 +2058,7 @@ app.post('/api/video-info', async (req, res) => {
     let stderr = '';
     let isResolved = false;
 
-    // Set a timeout for the entire operation (45 seconds)
+    // Set a timeout for the entire operation (20 seconds)
     const timeout = setTimeout(() => {
       if (!isResolved) {
         console.log('Video info request timed out, killing yt-dlp process');
@@ -2097,7 +2069,7 @@ app.post('/api/video-info', async (req, res) => {
           details: 'The video analysis process exceeded the time limit. This may happen with very large videos or slow network connections.'
         });
       }
-    }, 45000); // 45 second timeout
+    }, 20000); // 20 second timeout
 
     ytDlp.stdout.on('data', (data) => {
       stdout += data.toString();
