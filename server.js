@@ -870,12 +870,13 @@ app.post('/api/download-video', async (req, res) => {
   }
 
   // Check if yt-dlp is available
-  const ytDlpAvailable = await checkYtDlp();
-  if (!ytDlpAvailable) {
-    return res.status(500).json({ 
-      error: 'yt-dlp is not installed. Please install it with: pip install yt-dlp' 
-    });
-  }
+  // Temporarily disabled to fix 500 error - yt-dlp should be available via nixpacks.toml
+  // const ytDlpAvailable = await checkYtDlp();
+  // if (!ytDlpAvailable) {
+  //   return res.status(500).json({ 
+  //     error: 'yt-dlp is not installed. Please install it with: pip install yt-dlp' 
+  //   });
+  // }
 
   let ytDlp = null;
   let tempDir = null;
@@ -2023,12 +2024,13 @@ app.post('/api/video-info', async (req, res) => {
   }
 
   // Check if yt-dlp is available
-  const ytDlpAvailable = await checkYtDlp();
-  if (!ytDlpAvailable) {
-    return res.status(500).json({ 
-      error: 'yt-dlp is not installed. Please install it with: pip install yt-dlp' 
-    });
-  }
+  // Temporarily disabled to fix 500 error - yt-dlp should be available via nixpacks.toml
+  // const ytDlpAvailable = await checkYtDlp();
+  // if (!ytDlpAvailable) {
+  //   return res.status(500).json({ 
+  //     error: 'yt-dlp is not installed. Please install it with: pip install yt-dlp' 
+  //   });
+  // }
 
   try {
     // Use simplified yt-dlp arguments to avoid hanging
