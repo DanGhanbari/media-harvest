@@ -10,12 +10,6 @@ export const BACKEND_SERVERS = {
 
 // Get the API base URL from environment variables
 const getApiBaseUrl = (): string => {
-  // Check if we have a custom API base URL from environment variables
-  const envApiUrl = import.meta.env.VITE_API_BASE_URL;
-  if (envApiUrl) {
-    return envApiUrl;
-  }
-
   // Check if we're in development mode or running locally
   const isDevelopment = import.meta.env.DEV;
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
@@ -25,8 +19,8 @@ const getApiBaseUrl = (): string => {
     return BACKEND_SERVERS.LOCAL;
   }
 
-  // In production or when served from external domain, use VPS server
-  return BACKEND_SERVERS.VPS;
+  // In production (Vercel), use relative URLs to go through serverless functions
+  return '';
 };
 
 
