@@ -1,7 +1,13 @@
 
 // Helper function to get browser cookies for yt-dlp
 function getCookiesPath() {
-    // Use fresh cookies from Chrome browser for better YouTube compatibility
+    // Check for cookies file first (VPS environment)
+    const cookiesPath = path.join(process.env.HOME || '/home/daniel', '.cookies/accounts/default.txt');
+    if (fs.existsSync(cookiesPath)) {
+        return ['--cookies', cookiesPath];
+    }
+    
+    // Fallback to browser cookies (local development)
     return ['--cookies-from-browser', 'chrome'];
 }
 import express from 'express';
@@ -525,14 +531,23 @@ app.post('/api/download-video', async (req, res) => {
       ];
       
       // Try to use cookies for YouTube authentication if available
-      if (process.env.YOUTUBE_COOKIES_FILE && fs.existsSync(process.env.YOUTUBE_COOKIES_FILE)) {
+      const cookiesPath = path.join(process.env.HOME || '/home/daniel', '.cookies/accounts/default.txt');
+      if (fs.existsSync(cookiesPath)) {
+        ytDlpArgs.push('--cookies', cookiesPath);
+        console.log('🍪 Using cookies file for YouTube authentication:', cookiesPath);
+      } else if (process.env.YOUTUBE_COOKIES_FILE && fs.existsSync(process.env.YOUTUBE_COOKIES_FILE)) {
         ytDlpArgs.push('--cookies', process.env.YOUTUBE_COOKIES_FILE);
+        console.log('🍪 Using environment cookies file for YouTube authentication');
       } else {
         // Use alternative anti-bot measures
         ytDlpArgs.push(
-          '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          '--referer', 'https://www.youtube.com/'
+          '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          '--referer', 'https://www.youtube.com/',
+          '--extractor-retries', '3',
+          '--fragment-retries', '3',
+          '--retry-sleep', 'linear=1::2'
         );
+        console.log('⚠️ No cookies available, using basic anti-bot measures');
       }
     } else {
       // Default arguments for other platforms
@@ -1450,14 +1465,22 @@ app.post('/api/video-info', async (req, res) => {
       '--dump-json',
       '--no-playlist',
       '--no-warnings',
-      '--no-cookies',
       '--no-cache-dir',
       '--ignore-config',
       '--socket-timeout', '30',
       '--extractor-retries', '1'
-    ,
-        ...getCookiesPath()
     ];
+    
+    // Add cookies for YouTube authentication if available
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      const cookiesPath = path.join(process.env.HOME || '/home/daniel', '.cookies/accounts/default.txt');
+      if (fs.existsSync(cookiesPath)) {
+        ytDlpArgs.push('--cookies', cookiesPath);
+        console.log('🍪 Using cookies for video info:', cookiesPath);
+      } else {
+        ytDlpArgs.push(...getCookiesPath());
+      }
+    }
     
     // Add anti-bot measures for YouTube with fallback options
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
