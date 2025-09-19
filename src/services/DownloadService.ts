@@ -1,6 +1,6 @@
 import { saveAs } from 'file-saver';
 import { MediaItem } from './MediaDetectionService';
-import { API_ENDPOINTS, API_BASE_URL } from '../config/api';
+import { API_ENDPOINTS, API_BASE_URL, FALLBACK_API_ENDPOINTS } from '../config/api';
 
 export interface QualityOption {
   value: string;
@@ -534,97 +534,124 @@ export class DownloadService {
   }
   
   private static async downloadFromPlatform(item: MediaItem, quality: string = 'maximum', signal?: AbortSignal, onProgress?: (progress: number) => void, startTime?: string | number, endTime?: string | number): Promise<void> {
+    const isYouTube = this.isYouTubeUrl(item.url);
+    
     const downloadServices = [
-      // Service 1: Try local yt-dlp backend (most reliable)
+      // Service 1: Try primary backend (Vercel serverless or local)
       async () => {
-        // Create a timeout controller for large file downloads (5 minutes)
-        const timeoutController = new AbortController();
-        const timeoutId = setTimeout(() => timeoutController.abort(), 300000);
-        
-        // Combine the existing signal with timeout signal
-         let combinedSignal = timeoutController.signal;
-         if (signal) {
-           // If AbortSignal.any is available (newer browsers), use it
-           if (typeof AbortSignal.any === 'function') {
-             combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
-           } else {
-             // Fallback: listen to the original signal and abort timeout controller
-             signal.addEventListener('abort', () => timeoutController.abort());
-             combinedSignal = timeoutController.signal;
-           }
-         }
-        
-        try {
-          const requestBody: DownloadRequest = {
-            url: item.url,
-            filename: item.filename,
-            quality: quality,
-            sessionId: this.sessionId,
-            ...(startTime !== undefined && { startTime }),
-            ...(endTime !== undefined && { endTime })
-          };
-
-          console.log('📡 DownloadService: Making fetch request to', API_ENDPOINTS.DOWNLOAD_VIDEO);
-          
-          const response = await fetch(API_ENDPOINTS.DOWNLOAD_VIDEO, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(requestBody),
-            signal: combinedSignal
-          });
-          
-          console.log('✅ DownloadService: Fetch response status:', response.status);
-          
-          clearTimeout(timeoutId);
-          
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-            
-            // Handle authentication errors for Instagram/Facebook/YouTube with helpful messages
-            if (response.status === 403 && errorData.platform) {
-              let errorMessage = '';
-              if (errorData.platform === 'youtube') {
-                errorMessage = `🚫 ${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`;
-              } else if (errorData.platform === 'instagram' || errorData.platform === 'facebook') {
-                errorMessage = errorData.isProduction 
-                  ? `🚫 ${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`
-                  : `${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`;
-              }
-              throw new Error(errorMessage);
-            }
-            
-            throw new Error(`Backend download failed: ${errorData.error || response.statusText}`);
-          }
-          
-          // Get the file as a blob and save it
-          const blob = await response.blob();
-          saveAs(blob, item.filename);
-          return;
-        } catch (error) {
-           clearTimeout(timeoutId);
-           throw error;
-         }
-      }
-      // Note: Fallback services removed as they only support YouTube
-      // For multi-platform support, we rely on the yt-dlp backend
+        return this.tryDownloadWithEndpoint(API_ENDPOINTS.DOWNLOAD_VIDEO, item, quality, signal, startTime, endTime, 'primary');
+      },
+      // Service 2: Fallback to VPS backend for YouTube when primary fails with 403
+      ...(isYouTube ? [async () => {
+        console.log('🔄 DownloadService: Trying VPS fallback for YouTube download');
+        return this.tryDownloadWithEndpoint(FALLBACK_API_ENDPOINTS.DOWNLOAD_VIDEO, item, quality, signal, startTime, endTime, 'VPS fallback');
+      }] : [])
     ];
 
     let lastError: Error | null = null;
     
     for (let i = 0; i < downloadServices.length; i++) {
       try {
-        // Trying download service
         await downloadServices[i]();
         return;
       } catch (error) {
         lastError = error as Error;
-        // Service failed
+        console.log(`❌ DownloadService: Service ${i + 1} failed:`, lastError.message);
+        
+        // For YouTube 403 errors, continue to fallback. For other errors, break early
+        if (!isYouTube || !lastError.message.includes('403') || i === downloadServices.length - 1) {
+          // Don't continue for non-YouTube or if this was the last service
+          if (i < downloadServices.length - 1 && isYouTube && lastError.message.includes('403')) {
+            console.log('🔄 DownloadService: YouTube 403 error detected, trying VPS fallback...');
+            continue;
+          }
+          break;
+        }
       }
     }
     
     throw new Error(`All download services failed for ${this.getPlatformName(item.url)}. To use yt-dlp backend, please install yt-dlp (pip install yt-dlp) and run the server with 'npm run dev:full'. Last error: ${lastError?.message}`);
+  }
+
+  private static async tryDownloadWithEndpoint(
+    endpoint: string, 
+    item: MediaItem, 
+    quality: string, 
+    signal?: AbortSignal, 
+    startTime?: string | number, 
+    endTime?: string | number,
+    serviceName: string = 'unknown'
+  ): Promise<void> {
+    // Create a timeout controller for large file downloads (5 minutes)
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(), 300000);
+    
+    // Combine the existing signal with timeout signal
+    let combinedSignal = timeoutController.signal;
+    if (signal) {
+      // If AbortSignal.any is available (newer browsers), use it
+      if (typeof AbortSignal.any === 'function') {
+        combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
+      } else {
+        // Fallback: listen to the original signal and abort timeout controller
+        signal.addEventListener('abort', () => timeoutController.abort());
+        combinedSignal = timeoutController.signal;
+      }
+    }
+    
+    try {
+      const requestBody: DownloadRequest = {
+        url: item.url,
+        filename: item.filename,
+        quality: quality,
+        sessionId: this.sessionId,
+        ...(startTime !== undefined && { startTime }),
+        ...(endTime !== undefined && { endTime })
+      };
+
+      console.log(`📡 DownloadService: Making fetch request to ${endpoint} (${serviceName})`);
+      
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody),
+        signal: combinedSignal
+      });
+      
+      console.log(`✅ DownloadService: Fetch response status: ${response.status} (${serviceName})`);
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        
+        // Handle authentication errors for Instagram/Facebook/YouTube with helpful messages
+        if (response.status === 403 && errorData.platform) {
+          let errorMessage = '';
+          if (errorData.platform === 'youtube') {
+            errorMessage = `🚫 ${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`;
+          } else if (errorData.platform === 'instagram' || errorData.platform === 'facebook') {
+            errorMessage = errorData.isProduction 
+              ? `🚫 ${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`
+              : `${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`;
+          }
+          throw new Error(errorMessage);
+        }
+        
+        throw new Error(`Backend download failed (${serviceName}): ${errorData.error || response.statusText}`);
+      }
+      
+      // Get the file as a blob and save it
+      const blob = await response.blob();
+      saveAs(blob, item.filename);
+      console.log(`✅ DownloadService: Successfully downloaded via ${serviceName}`);
+      return;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
   }
 
   private static createDownloadLink(url: string, filename: string): void {
