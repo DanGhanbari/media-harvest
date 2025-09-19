@@ -1569,6 +1569,12 @@ app.post('/api/download-video', async (req, res) => {
   
   // Handle request cancellation
   const cleanup = () => {
+    // Clear download timeout if it exists
+    const downloadData = activeDownloads.get(url);
+    if (downloadData && downloadData.timeout) {
+      clearTimeout(downloadData.timeout);
+    }
+    
     if (ytDlp && !ytDlp.killed) {
       ytDlp.kill('SIGTERM');
       // Force kill if SIGTERM doesn't work
@@ -1825,8 +1831,29 @@ app.post('/api/download-video', async (req, res) => {
     console.log('🎬 SERVER DEBUG: yt-dlp process started for sessionId:', sessionId);
     console.log('🎬 SERVER DEBUG: Process PID:', ytDlp.pid);
     
+    // Add timeout mechanism to prevent hanging downloads
+    const downloadTimeout = setTimeout(() => {
+      console.error('⏰ Download timeout reached (5 minutes), killing yt-dlp process');
+      if (ytDlp && !ytDlp.killed) {
+        ytDlp.kill('SIGTERM');
+        setTimeout(() => {
+          if (ytDlp && !ytDlp.killed) {
+            console.error('⏰ Force killing yt-dlp process with SIGKILL');
+            ytDlp.kill('SIGKILL');
+          }
+        }, 5000); // Give 5 seconds for graceful termination
+      }
+      cleanup();
+      if (!res.headersSent) {
+        res.status(408).json({ 
+          error: 'Download timeout',
+          details: 'The download took too long and was cancelled. This may be due to network issues or the video being very large.' 
+        });
+      }
+    }, 5 * 60 * 1000); // 5 minutes timeout
+    
     // Register this download in the active downloads map
-    activeDownloads.set(url, { ytDlp, tempDir, cleanup, sessionId });
+    activeDownloads.set(url, { ytDlp, tempDir, cleanup, sessionId, timeout: downloadTimeout });
     
     let stderr = '';
     let stdout = '';
@@ -2120,6 +2147,11 @@ app.post('/api/download-video', async (req, res) => {
     
     ytDlp.on('close', async (code) => {
       clearConnectionCheck();
+      // Clear download timeout
+      const downloadData = activeDownloads.get(url);
+      if (downloadData && downloadData.timeout) {
+        clearTimeout(downloadData.timeout);
+      }
       // Progress simulation removed - no cleanup needed
       
       // Handle Instagram/Facebook authentication failures with helpful error messages
@@ -2556,6 +2588,11 @@ app.post('/api/download-video', async (req, res) => {
     
     ytDlp.on('error', (error) => {
       clearConnectionCheck();
+      // Clear download timeout
+      const downloadData = activeDownloads.get(url);
+      if (downloadData && downloadData.timeout) {
+        clearTimeout(downloadData.timeout);
+      }
       fs.rmSync(tempDir, { recursive: true, force: true });
       if (!res.headersSent) {
         res.status(500).json({ 
