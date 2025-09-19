@@ -1,7 +1,7 @@
 // Vercel serverless function to proxy quality options requests to VPS backend
 export default async function handler(req, res) {
-  // Only allow POST requests (based on the backend implementation)
-  if (req.method !== 'POST') {
+  // Allow GET requests (frontend uses GET for quality-options)
+  if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
