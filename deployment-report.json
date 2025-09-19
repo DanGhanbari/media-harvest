@@ -1,0 +1,56 @@
+{
+  "timestamp": "2025-09-19T16:11:47.109Z",
+  "results": {
+    "services": {
+      "download": true,
+      "format": true,
+      "error": true,
+      "health": true,
+      "connection": false,
+      "healthCheck": false
+    },
+    "downloads": {
+      "videoInfo": false
+    },
+    "performance": {
+      "videoInfoTime": -1,
+      "formatDetectionTime": 3974,
+      "memoryUsage": {
+        "before": {
+          "rss": 65748992,
+          "heapTotal": 18903040,
+          "heapUsed": 13455312,
+          "external": 3657090,
+          "arrayBuffers": 75970
+        },
+        "after": {
+          "rss": 65851392,
+          "heapTotal": 19165184,
+          "heapUsed": 13558048,
+          "external": 3657130,
+          "arrayBuffers": 75970
+        },
+        "increase": {
+          "rss": 102400,
+          "heapUsed": 102736,
+          "heapTotal": 262144
+        }
+      },
+      "initializationTime": 3976
+    },
+    "errors": [
+      {
+        "test": "enhanced_services",
+        "error": "this.services.retry.getStats is not a function",
+        "timestamp": "2025-09-19T16:11:43.130Z"
+      }
+    ]
+  },
+  "assessment": {
+    "totalTests": 9,
+    "passedTests": 4,
+    "successRate": 44.44444444444444,
+    "errors": 1,
+    "ready": false
+  }
+}
