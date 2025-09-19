@@ -127,7 +127,7 @@ class YouTubeBypassManager {
         };
     }
 
-    // Advanced client strategy rotation
+    // Advanced client strategy rotation with mobile app emulation
     getClientStrategy() {
         const strategies = [
             {
@@ -140,12 +140,32 @@ class YouTubeBypassManager {
                 ]
             },
             {
-                name: 'ios_music',
+                name: 'youtube_music_android',
+                args: [
+                    '--extractor-args', 'youtube:player_client=android_music,android_creator',
+                    '--add-header', 'X-YouTube-Client-Name:21',
+                    '--add-header', 'X-YouTube-Client-Version:6.42.52',
+                    '--add-header', 'X-YouTube-API-Key:AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30',
+                    '--user-agent', 'com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 13; SM-G998B Build/TP1A.220624.014) gzip'
+                ]
+            },
+            {
+                name: 'youtube_music_ios',
                 args: [
                     '--extractor-args', 'youtube:player_client=ios_music,ios_creator',
                     '--add-header', 'X-YouTube-Client-Name:26',
                     '--add-header', 'X-YouTube-Client-Version:6.42.52',
+                    '--add-header', 'X-YouTube-API-Key:AIzaSyBAETezhkwP0ZWA02RsqT1zu78Fpt0bC_s',
                     '--user-agent', 'com.google.ios.youtubemusic/6.42.52 (iPhone16,2; U; CPU iOS 17_6 like Mac OS X)'
+                ]
+            },
+            {
+                name: 'android_testsuite',
+                args: [
+                    '--extractor-args', 'youtube:player_client=android_testsuite',
+                    '--add-header', 'X-YouTube-Client-Name:30',
+                    '--add-header', 'X-YouTube-Client-Version:1.9',
+                    '--user-agent', 'com.google.android.youtube/1.9 (Linux; U; Android 13) gzip'
                 ]
             },
             {
@@ -165,59 +185,246 @@ class YouTubeBypassManager {
                     '--add-header', 'X-YouTube-Client-Version:2.0',
                     '--user-agent', 'Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.0 TV Safari/537.36'
                 ]
+            },
+            {
+                name: 'mweb_bypass',
+                args: [
+                    '--extractor-args', 'youtube:player_client=mweb',
+                    '--add-header', 'X-YouTube-Client-Name:2',
+                    '--add-header', 'X-YouTube-Client-Version:2.20240304.08.00',
+                    '--user-agent', 'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'
+                ]
             }
         ];
         
         this.clientRotation = (this.clientRotation + 1) % strategies.length;
         return strategies[this.clientRotation];
     }
+    
+    // Enhanced cookie extraction with YouTube Premium support
+    async extractYouTubePremiumCookies() {
+        let browser = null;
+        try {
+            console.log('🍪 Extracting YouTube Premium cookies...');
+            
+            browser = await puppeteer.launch({
+                headless: false, // Show browser for login
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-web-security',
+                    '--user-data-dir=/tmp/chrome-user-data'
+                ],
+                timeout: 60000
+            });
 
-    // Enhanced rotating residential proxy system with geolocation diversity
-    getProxyConfig() {
-        // Residential proxy pool with geographic diversity
-        const residentialProxies = [
-            // US proxies
-            process.env.US_PROXY_1,
-            process.env.US_PROXY_2,
-            process.env.US_PROXY_3,
-            // EU proxies
-            process.env.EU_PROXY_1,
-            process.env.EU_PROXY_2,
-            process.env.EU_PROXY_3,
-            // Asia-Pacific proxies
-            process.env.APAC_PROXY_1,
-            process.env.APAC_PROXY_2,
-            process.env.APAC_PROXY_3,
-            // Fallback to basic proxies
-            process.env.HTTP_PROXY,
-            process.env.HTTPS_PROXY,
-            process.env.SOCKS_PROXY
-        ].filter(Boolean);
+            const page = await browser.newPage();
+            
+            // Set realistic headers
+            await page.setExtraHTTPHeaders({
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1'
+            });
+            
+            // Navigate to YouTube Premium login
+            await page.goto('https://www.youtube.com/premium', { waitUntil: 'networkidle2' });
+            
+            console.log('Please log in to your YouTube Premium account in the browser window...');
+            console.log('After logging in, the cookies will be automatically extracted.');
+            
+            // Wait for login completion (check for Premium indicators)
+            await page.waitForFunction(() => {
+                return document.querySelector('[aria-label*="Premium"]') || 
+                       document.querySelector('.ytd-topbar-logo-renderer') ||
+                       window.location.href.includes('/feed/subscriptions');
+            }, { timeout: 300000 }); // 5 minutes
+            
+            // Extract all cookies
+            const cookies = await page.cookies();
+            
+            // Filter for important YouTube cookies
+            const importantCookies = cookies.filter(cookie => 
+                ['VISITOR_INFO1_LIVE', 'YSC', 'PREF', 'CONSENT', 'LOGIN_INFO', 'SID', 'HSID', 'SSID', 'APISID', 'SAPISID'].includes(cookie.name)
+            );
+            
+            // Save cookies in Netscape format
+            const cookieString = cookies.map(cookie => 
+                `${cookie.domain}\t${cookie.httpOnly ? 'TRUE' : 'FALSE'}\t${cookie.path}\t${cookie.secure ? 'TRUE' : 'FALSE'}\t${Math.floor(cookie.expires || Date.now() / 1000 + 86400)}\t${cookie.name}\t${cookie.value}`
+            ).join('\n');
+            
+            const cookiesDir = path.join(__dirname, '.cookies');
+            if (!fs.existsSync(cookiesDir)) {
+                fs.mkdirSync(cookiesDir, { recursive: true });
+            }
+            
+            const cookieFile = path.join(cookiesDir, 'youtube_premium.txt');
+            fs.writeFileSync(cookieFile, cookieString);
+            
+            console.log(`✅ Extracted ${cookies.length} cookies (${importantCookies.length} important) to ${cookieFile}`);
+            
+            // Update cookie jar path
+            this.cookieJar = cookieFile;
+            
+            return cookieFile;
+            
+        } catch (error) {
+            console.error('❌ YouTube Premium cookie extraction failed:', error.message);
+            throw error;
+        } finally {
+            if (browser) {
+                await browser.close();
+            }
+        }
+    }
+    
+    async rotateCookies() {
+        const cookiesDir = path.join(__dirname, '.cookies');
+        const cookieFiles = [
+            'youtube_premium.txt',
+            'youtube_cookies.txt',
+            'youtube_backup.txt'
+        ];
         
-        if (residentialProxies.length === 0) {
+        // Find available cookie files
+        const availableCookies = cookieFiles.filter(file => {
+            const filePath = path.join(cookiesDir, file);
+            return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
+        });
+        
+        if (availableCookies.length === 0) {
+            console.log('⚠️ No cookie files available for rotation');
+            return null;
+        }
+        
+        // Rotate to next available cookie file
+        const currentIndex = this.currentCookieIndex || 0;
+        const nextIndex = (currentIndex + 1) % availableCookies.length;
+        this.currentCookieIndex = nextIndex;
+        
+        const selectedCookieFile = availableCookies[nextIndex];
+        const selectedCookiePath = path.join(cookiesDir, selectedCookieFile);
+        
+        console.log(`🔄 Rotating to cookie file: ${selectedCookieFile}`);
+        
+        // Update cookie jar to use rotated cookies
+        this.cookieJar = selectedCookiePath;
+        
+        return selectedCookieFile;
+    }
+    
+    async backupCurrentCookies() {
+        const cookiesPath = this.getCookiesPath();
+        if (fs.existsSync(cookiesPath)) {
+            const cookiesDir = path.dirname(cookiesPath);
+            const backupPath = path.join(cookiesDir, 'youtube_backup.txt');
+            fs.copyFileSync(cookiesPath, backupPath);
+            console.log('💾 Current cookies backed up');
+        }
+    }
+    
+    async refreshCookiesIfNeeded() {
+        const cookiesPath = this.getCookiesPath();
+        
+        // Check if cookies are older than 24 hours
+        if (fs.existsSync(cookiesPath)) {
+            const stats = fs.statSync(cookiesPath);
+            const ageInHours = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60);
+            
+            if (ageInHours > 24) {
+                console.log('🔄 Cookies are older than 24 hours, attempting refresh');
+                try {
+                    await this.backupCurrentCookies();
+                    await this.rotateCookies();
+                    return true;
+                } catch (error) {
+                    console.error('❌ Cookie refresh failed:', error.message);
+                    return false;
+                }
+            }
+        }
+        
+        return false;
+    }
+
+    // Enhanced rotating residential proxy system with multiple providers
+    getProxyConfig(preferredRegion = null) {
+        // Multi-provider proxy pool with geographic diversity
+        const proxyProviders = {
+            'brightdata': [
+                process.env.BRIGHTDATA_US_1, process.env.BRIGHTDATA_US_2, process.env.BRIGHTDATA_US_3,
+                process.env.BRIGHTDATA_EU_1, process.env.BRIGHTDATA_EU_2, process.env.BRIGHTDATA_EU_3,
+                process.env.BRIGHTDATA_APAC_1, process.env.BRIGHTDATA_APAC_2, process.env.BRIGHTDATA_APAC_3
+            ].filter(Boolean),
+            'smartproxy': [
+                process.env.SMARTPROXY_US_1, process.env.SMARTPROXY_US_2, process.env.SMARTPROXY_US_3,
+                process.env.SMARTPROXY_EU_1, process.env.SMARTPROXY_EU_2, process.env.SMARTPROXY_EU_3,
+                process.env.SMARTPROXY_APAC_1, process.env.SMARTPROXY_APAC_2, process.env.SMARTPROXY_APAC_3
+            ].filter(Boolean),
+            'oxylabs': [
+                process.env.OXYLABS_US_1, process.env.OXYLABS_US_2, process.env.OXYLABS_US_3,
+                process.env.OXYLABS_EU_1, process.env.OXYLABS_EU_2, process.env.OXYLABS_EU_3,
+                process.env.OXYLABS_APAC_1, process.env.OXYLABS_APAC_2, process.env.OXYLABS_APAC_3
+            ].filter(Boolean),
+            'legacy': [
+                // US proxies
+                process.env.US_PROXY_1, process.env.US_PROXY_2, process.env.US_PROXY_3,
+                // EU proxies
+                process.env.EU_PROXY_1, process.env.EU_PROXY_2, process.env.EU_PROXY_3,
+                // Asia-Pacific proxies
+                process.env.APAC_PROXY_1, process.env.APAC_PROXY_2, process.env.APAC_PROXY_3,
+                // Fallback to basic proxies
+                process.env.HTTP_PROXY, process.env.HTTPS_PROXY, process.env.SOCKS_PROXY
+            ].filter(Boolean)
+        };
+        
+        // Combine all available proxies
+        const allProxies = Object.values(proxyProviders).flat().filter(Boolean);
+        
+        if (allProxies.length === 0) {
             console.log('No proxies configured, proceeding without proxy');
             return [];
         }
         
-        // Intelligent proxy rotation based on request patterns
+        // More aggressive rotation for YouTube: every 2-3 requests or every 90 seconds
         const now = Date.now();
         const timeSinceLastRotation = now - (this.lastProxyRotation || 0);
         
-        // Rotate proxy every 3-5 requests or every 2 minutes
         if (!this.lastProxyRotation || 
-            this.requestCount % (3 + Math.floor(Math.random() * 3)) === 0 || 
-            timeSinceLastRotation > 120000) {
+            this.requestCount % (2 + Math.floor(Math.random() * 2)) === 0 || 
+            timeSinceLastRotation > 90000) {
             
-            this.proxyRotation = (this.proxyRotation + 1) % residentialProxies.length;
+            // Skip failed proxies for 10 minutes
+            let attempts = 0;
+            let selectedProxy;
+            
+            do {
+                this.proxyRotation = (this.proxyRotation + 1) % allProxies.length;
+                selectedProxy = allProxies[this.proxyRotation];
+                attempts++;
+                
+                const failureKey = selectedProxy;
+                const lastFailure = this.proxyFailures.get(failureKey);
+                
+                if (!lastFailure || (now - lastFailure) > 600000) { // 10 minutes
+                    break;
+                }
+            } while (attempts < allProxies.length);
+            
             this.lastProxyRotation = now;
             
-            const selectedProxy = residentialProxies[this.proxyRotation];
-            console.log(`🌐 Rotating to proxy ${this.proxyRotation + 1}/${residentialProxies.length}: ${selectedProxy.substring(0, 20)}...`);
+            // Determine proxy provider for logging
+            const provider = Object.keys(proxyProviders).find(key => 
+                proxyProviders[key].includes(selectedProxy)
+            ) || 'unknown';
+            
+            console.log(`🌐 Rotating to ${provider} proxy ${this.proxyRotation + 1}/${allProxies.length}: ${selectedProxy.substring(0, 25)}...`);
         }
         
-        const currentProxy = residentialProxies[this.proxyRotation];
+        const currentProxy = allProxies[this.proxyRotation];
         
-        // Support different proxy protocols
+        // Enhanced proxy protocol support
         if (currentProxy.startsWith('socks5://') || currentProxy.startsWith('socks4://')) {
             return ['--proxy', currentProxy];
         } else if (currentProxy.startsWith('http://') || currentProxy.startsWith('https://')) {
@@ -225,6 +432,485 @@ class YouTubeBypassManager {
         } else {
             // Assume HTTP if no protocol specified
             return ['--proxy', `http://${currentProxy}`];
+        }
+    }
+    
+    // Mark proxy as failed with exponential backoff
+    markProxyFailed(proxyUrl) {
+        const now = Date.now();
+        const failureCount = this.proxyFailures.get(proxyUrl + '_count') || 0;
+        const backoffTime = Math.min(600000, 60000 * Math.pow(2, failureCount)); // Max 10 minutes
+        
+        this.proxyFailures.set(proxyUrl, now + backoffTime);
+        this.proxyFailures.set(proxyUrl + '_count', failureCount + 1);
+        
+        console.log(`❌ Marking proxy as failed (attempt ${failureCount + 1}): ${proxyUrl.substring(0, 25)}... (backoff: ${Math.round(backoffTime/1000)}s)`);
+    }
+    
+    // Advanced rate limiting with exponential backoff and adaptive throttling
+    async implementRateLimit() {
+        const now = Date.now();
+        const timeSinceLastRequest = now - (this.lastRequestTime || 0);
+        
+        // Initialize advanced tracking if not exists
+        if (!this.requestHistory) {
+            this.requestHistory = [];
+            this.failureHistory = [];
+            this.successRate = 1.0;
+            this.adaptiveMultiplier = 1.0;
+            this.lastSuccessTime = now;
+        }
+        
+        // Clean old data (older than 2 hours for better pattern analysis)
+        const cutoffTime = now - 7200000; // 2 hours
+        this.requestHistory = this.requestHistory.filter(req => req.timestamp > cutoffTime);
+        this.failureHistory = this.failureHistory.filter(fail => fail.timestamp > cutoffTime);
+        
+        // Calculate success rate over different time windows
+        const windows = {
+            '5min': now - 300000,
+            '15min': now - 900000,
+            '1hour': now - 3600000
+        };
+        
+        const windowStats = {};
+        Object.entries(windows).forEach(([window, cutoff]) => {
+            const requests = this.requestHistory.filter(req => req.timestamp > cutoff);
+            const failures = this.failureHistory.filter(fail => fail.timestamp > cutoff);
+            windowStats[window] = {
+                total: requests.length,
+                failures: failures.length,
+                successRate: requests.length > 0 ? (requests.length - failures.length) / requests.length : 1.0
+            };
+        });
+        
+        // Advanced exponential backoff calculation
+        let baseDelay = 2000; // 2 seconds base
+        
+        // Factor 1: Exponential backoff based on consecutive failures
+        const consecutiveFailures = this.consecutiveFailures || 0;
+        if (consecutiveFailures > 0) {
+            const exponentialDelay = Math.min(
+                baseDelay * Math.pow(2, consecutiveFailures - 1), 
+                300000 // Max 5 minutes
+            );
+            baseDelay = Math.max(baseDelay, exponentialDelay);
+        }
+        
+        // Factor 2: Adaptive throttling based on success rate
+        const recentSuccessRate = windowStats['15min'].successRate;
+        if (recentSuccessRate < 0.5) {
+            this.adaptiveMultiplier = Math.min(this.adaptiveMultiplier * 1.5, 10.0);
+        } else if (recentSuccessRate > 0.8) {
+            this.adaptiveMultiplier = Math.max(this.adaptiveMultiplier * 0.9, 0.5);
+        }
+        baseDelay *= this.adaptiveMultiplier;
+        
+        // Factor 3: Request frequency analysis with sliding window
+        const recentRequests = this.requestHistory.filter(req => req.timestamp > now - 600000);
+        if (recentRequests.length > 20) {
+            const frequencyPenalty = Math.pow(1.2, recentRequests.length - 20);
+            baseDelay *= frequencyPenalty;
+        }
+        
+        // Factor 4: Failure pattern analysis
+        const recentFailures = this.failureHistory.filter(fail => fail.timestamp > now - 900000);
+        const failureTypes = {};
+        recentFailures.forEach(fail => {
+            failureTypes[fail.type] = (failureTypes[fail.type] || 0) + 1;
+        });
+        
+        // Adjust delay based on failure patterns
+        if (failureTypes['rate_limit'] > 3) {
+            baseDelay *= 2.5; // Heavy penalty for rate limiting
+        }
+        if (failureTypes['bot_detection'] > 2) {
+            baseDelay *= 3.0; // Severe penalty for bot detection
+        }
+        if (failureTypes['timeout'] > 5) {
+            baseDelay *= 1.5; // Moderate penalty for timeouts
+        }
+        
+        // Factor 5: Time-based adaptive scheduling
+        const hour = new Date().getHours();
+        const dayOfWeek = new Date().getDay();
+        
+        // Peak hours adjustment (more aggressive)
+        if (hour >= 17 && hour <= 23) { // 5PM-11PM
+            baseDelay *= 1.8;
+        } else if (hour >= 12 && hour <= 16) { // 12PM-4PM
+            baseDelay *= 1.3;
+        } else if (hour >= 2 && hour <= 6) { // 2AM-6AM (optimal)
+            baseDelay *= 0.6;
+        }
+        
+        // Weekend adjustment
+        if (dayOfWeek === 0 || dayOfWeek === 6) { // Sunday or Saturday
+            baseDelay *= 1.2;
+        }
+        
+        // Factor 6: Circuit breaker with graduated recovery
+        if (this.isCircuitBreakerActive()) {
+            const breakerTime = this.circuitBreakerUntil - now;
+            const recoveryMultiplier = Math.max(2.0, breakerTime / 60000); // 2x to 5x based on remaining time
+            baseDelay = Math.max(baseDelay, 60000 * recoveryMultiplier);
+        }
+        
+        // Factor 7: Intelligent jitter (larger jitter for higher delays)
+        const jitterRange = Math.min(baseDelay * 0.3, 10000); // 30% of delay, max 10s
+        const jitter = (Math.random() - 0.5) * jitterRange;
+        const totalDelay = Math.max(1000, baseDelay + jitter); // Minimum 1s delay
+        
+        // Factor 8: Burst protection (prevent rapid successive requests)
+        const burstWindow = 30000; // 30 seconds
+        const burstRequests = this.requestHistory.filter(req => req.timestamp > now - burstWindow);
+        if (burstRequests.length >= 3) {
+            const burstPenalty = Math.pow(1.5, burstRequests.length - 2);
+            const adjustedDelay = totalDelay * burstPenalty;
+            
+            if (timeSinceLastRequest < adjustedDelay) {
+                const waitTime = adjustedDelay - timeSinceLastRequest;
+                console.log(`🛡️ Burst protection: waiting ${Math.round(waitTime/1000)}s`);
+                console.log(`   📊 Burst requests: ${burstRequests.length}, penalty: ${burstPenalty.toFixed(2)}x`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+        } else if (timeSinceLastRequest < totalDelay) {
+            const waitTime = totalDelay - timeSinceLastRequest;
+            console.log(`⏱️ Advanced rate limiting: waiting ${Math.round(waitTime/1000)}s`);
+            console.log(`   📊 Stats: success=${(recentSuccessRate*100).toFixed(1)}%, failures=${consecutiveFailures}, adaptive=${this.adaptiveMultiplier.toFixed(2)}x`);
+            console.log(`   🕐 Factors: hour=${hour}, requests=${recentRequests.length}, circuit=${this.isCircuitBreakerActive()}`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+        
+        // Record this request with metadata
+        this.requestHistory.push({
+            timestamp: now,
+            hour: hour,
+            dayOfWeek: dayOfWeek,
+            delay: totalDelay,
+            adaptiveMultiplier: this.adaptiveMultiplier
+        });
+        this.lastRequestTime = now;
+    }
+    
+    recordSuccess() {
+        const now = Date.now();
+        this.consecutiveFailures = 0;
+        this.lastSuccessTime = now;
+        
+        // Gradually reduce adaptive multiplier on success
+        if (this.adaptiveMultiplier > 1.0) {
+            this.adaptiveMultiplier = Math.max(this.adaptiveMultiplier * 0.95, 0.8);
+        }
+        
+        // Reset circuit breaker if it was active
+        if (this.circuitBreakerUntil && now >= this.circuitBreakerUntil) {
+            console.log('✅ Circuit breaker reset after successful request');
+            this.circuitBreakerUntil = null;
+        }
+        
+        console.log(`✅ Request successful - failures reset, adaptive=${this.adaptiveMultiplier.toFixed(2)}x`);
+    }
+    
+    recordFailure(errorType = 'unknown') {
+        const now = Date.now();
+        this.consecutiveFailures = (this.consecutiveFailures || 0) + 1;
+        
+        // Initialize failure history if needed
+        if (!this.failureHistory) {
+            this.failureHistory = [];
+        }
+        
+        // Record detailed failure information
+        this.failureHistory.push({
+            timestamp: now,
+            type: errorType,
+            consecutiveCount: this.consecutiveFailures,
+            timeSinceLastSuccess: now - (this.lastSuccessTime || now)
+        });
+        
+        console.log(`❌ Request failed (${errorType}) - consecutive failures: ${this.consecutiveFailures}`);
+        
+        // Advanced circuit breaker with graduated thresholds
+        const timeSinceLastSuccess = now - (this.lastSuccessTime || now);
+        let breakerThreshold = 8; // Default threshold
+        
+        // Lower threshold for critical error types
+        if (['bot_detection', 'captcha_required'].includes(errorType)) {
+            breakerThreshold = 5;
+        } else if (['rate_limit', 'forbidden'].includes(errorType)) {
+            breakerThreshold = 6;
+        }
+        
+        // Activate circuit breaker with adaptive duration
+        if (this.consecutiveFailures >= breakerThreshold) {
+            let breakerDuration = 3 * 60 * 1000; // Base 3 minutes
+            
+            // Increase duration based on failure severity and frequency
+            if (errorType === 'bot_detection') {
+                breakerDuration *= 3; // 9 minutes for bot detection
+            } else if (errorType === 'rate_limit') {
+                breakerDuration *= 2; // 6 minutes for rate limiting
+            }
+            
+            // Increase duration if failures are happening too frequently
+            if (timeSinceLastSuccess < 300000) { // Less than 5 minutes since last success
+                breakerDuration *= 1.5;
+            }
+            
+            // Progressive penalty for repeated circuit breaker activations
+            const recentBreakers = this.failureHistory.filter(fail => 
+                fail.timestamp > now - 3600000 && // Last hour
+                fail.consecutiveCount >= breakerThreshold
+            ).length;
+            
+            if (recentBreakers > 1) {
+                breakerDuration *= Math.pow(1.5, recentBreakers - 1);
+            }
+            
+            this.circuitBreakerUntil = now + Math.min(breakerDuration, 30 * 60 * 1000); // Max 30 minutes
+            
+            console.log(`🚨 Circuit breaker activated for ${Math.round(breakerDuration/60000)} minutes`);
+            console.log(`   🔍 Trigger: ${this.consecutiveFailures}/${breakerThreshold} failures, type: ${errorType}`);
+        }
+    }
+    
+    isCircuitBreakerActive() {
+        if (this.circuitBreakerUntil && Date.now() < this.circuitBreakerUntil) {
+            const remainingTime = Math.round((this.circuitBreakerUntil - Date.now()) / 1000);
+            const remainingMinutes = Math.round(remainingTime / 60);
+            
+            if (remainingTime % 30 === 0 || remainingTime < 10) { // Log every 30s or final 10s
+                console.log(`🚨 Circuit breaker active: ${remainingMinutes}m ${remainingTime % 60}s remaining`);
+            }
+            return true;
+        }
+        
+        // Check for half-open state (allow one test request after breaker expires)
+        if (this.circuitBreakerUntil && Date.now() >= this.circuitBreakerUntil) {
+            console.log('🔄 Circuit breaker entering half-open state - allowing test request');
+            this.circuitBreakerUntil = null; // Reset for test
+        }
+        
+        return false;
+    }
+    
+    // Get current system performance metrics
+    getPerformanceMetrics() {
+        const now = Date.now();
+        const windows = {
+            '5min': now - 300000,
+            '15min': now - 900000,
+            '1hour': now - 3600000
+        };
+        
+        const metrics = {};
+        Object.entries(windows).forEach(([window, cutoff]) => {
+            const requests = (this.requestHistory || []).filter(req => req.timestamp > cutoff);
+            const failures = (this.failureHistory || []).filter(fail => fail.timestamp > cutoff);
+            
+            metrics[window] = {
+                totalRequests: requests.length,
+                totalFailures: failures.length,
+                successRate: requests.length > 0 ? ((requests.length - failures.length) / requests.length * 100).toFixed(1) + '%' : 'N/A',
+                avgDelay: requests.length > 0 ? Math.round(requests.reduce((sum, req) => sum + (req.delay || 0), 0) / requests.length / 1000) + 's' : 'N/A'
+            };
+        });
+        
+        return {
+            ...metrics,
+            consecutiveFailures: this.consecutiveFailures || 0,
+            adaptiveMultiplier: (this.adaptiveMultiplier || 1.0).toFixed(2) + 'x',
+            circuitBreakerActive: this.isCircuitBreakerActive(),
+            lastSuccessTime: this.lastSuccessTime ? new Date(this.lastSuccessTime).toISOString() : 'Never'
+        };
+    }
+    
+    // CAPTCHA solving integration for automated cookie refresh
+    async solveCaptcha(captchaImageUrl, captchaType = 'image') {
+        const captchaApiKey = process.env.CAPTCHA_API_KEY || process.env.TWOCAPTCHA_API_KEY;
+        
+        if (!captchaApiKey) {
+            console.log('⚠️ No CAPTCHA API key found, skipping CAPTCHA solving');
+            throw new Error('CAPTCHA API key not configured');
+        }
+        
+        try {
+            console.log('🧩 Attempting to solve CAPTCHA...');
+            
+            // Using 2captcha service (can be adapted for other services)
+            const submitResponse = await fetch('http://2captcha.com/in.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    key: captchaApiKey,
+                    method: 'base64',
+                    body: captchaImageUrl.startsWith('data:') ? captchaImageUrl.split(',')[1] : captchaImageUrl,
+                    json: 1
+                })
+            });
+            
+            const submitResult = await submitResponse.json();
+            
+            if (submitResult.status !== 1) {
+                throw new Error(`CAPTCHA submission failed: ${submitResult.error_text}`);
+            }
+            
+            const captchaId = submitResult.request;
+            console.log(`🧩 CAPTCHA submitted with ID: ${captchaId}`);
+            
+            // Poll for result (wait up to 2 minutes)
+            for (let i = 0; i < 24; i++) {
+                await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+                
+                const resultResponse = await fetch(`http://2captcha.com/res.php?key=${captchaApiKey}&action=get&id=${captchaId}&json=1`);
+                const result = await resultResponse.json();
+                
+                if (result.status === 1) {
+                    console.log('✅ CAPTCHA solved successfully');
+                    return result.request; // The solved CAPTCHA text
+                } else if (result.error_text && result.error_text !== 'CAPCHA_NOT_READY') {
+                    throw new Error(`CAPTCHA solving failed: ${result.error_text}`);
+                }
+                
+                console.log(`🧩 CAPTCHA not ready yet, waiting... (attempt ${i + 1}/24)`);
+            }
+            
+            throw new Error('CAPTCHA solving timeout');
+            
+        } catch (error) {
+            console.error('❌ CAPTCHA solving error:', error.message);
+            throw error;
+        }
+    }
+    
+    // Enhanced cookie extraction with CAPTCHA handling
+    async extractCookiesWithCaptchaSolving(url) {
+        const browser = await puppeteer.launch({
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu'
+            ]
+        });
+        
+        try {
+            const page = await browser.newPage();
+            
+            // Set realistic user agent and viewport
+            await page.setUserAgent(this.getAdvancedUserAgent().desktop.chrome);
+            await page.setViewport({ width: 1920, height: 1080 });
+            
+            console.log('🍪 Navigating to YouTube for cookie extraction with CAPTCHA handling...');
+            await page.goto('https://www.youtube.com', { waitUntil: 'networkidle2', timeout: 30000 });
+            
+            // Check for CAPTCHA presence
+            const captchaDetected = await page.evaluate(() => {
+                // Common CAPTCHA selectors
+                const captchaSelectors = [
+                    '[src*="captcha"]',
+                    '[src*="recaptcha"]',
+                    '.g-recaptcha',
+                    '#captcha',
+                    '.captcha-container',
+                    '[data-callback*="captcha"]'
+                ];
+                
+                return captchaSelectors.some(selector => document.querySelector(selector));
+            });
+            
+            if (captchaDetected) {
+                console.log('🧩 CAPTCHA detected, attempting to solve...');
+                
+                try {
+                    // Extract CAPTCHA image
+                    const captchaImage = await page.evaluate(() => {
+                        const img = document.querySelector('[src*="captcha"], [src*="recaptcha"]');
+                        return img ? img.src : null;
+                    });
+                    
+                    if (captchaImage) {
+                        const captchaSolution = await this.solveCaptcha(captchaImage);
+                        
+                        // Input CAPTCHA solution
+                        const captchaInput = await page.$('input[name*="captcha"], input[id*="captcha"], input[type="text"]');
+                        if (captchaInput) {
+                            await captchaInput.type(captchaSolution);
+                            
+                            // Submit CAPTCHA
+                            const submitButton = await page.$('button[type="submit"], input[type="submit"], button:contains("Submit")');
+                            if (submitButton) {
+                                await submitButton.click();
+                                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 });
+                                console.log('✅ CAPTCHA submitted successfully');
+                            }
+                        }
+                    }
+                } catch (captchaError) {
+                    console.log('⚠️ CAPTCHA solving failed, continuing without solving:', captchaError.message);
+                }
+            }
+            
+            // Continue with normal cookie extraction
+            await page.waitForTimeout(3000);
+            
+            // Extract cookies
+            const cookies = await page.cookies();
+            const youtubeCookies = cookies.filter(cookie => 
+                cookie.domain.includes('youtube.com') || cookie.domain.includes('google.com')
+            );
+            
+            if (youtubeCookies.length > 0) {
+                // Save cookies in Netscape format
+                const cookiesPath = this.getCookiesPath();
+                const netscapeCookies = youtubeCookies.map(cookie => {
+                    const domain = cookie.domain.startsWith('.') ? cookie.domain : `.${cookie.domain}`;
+                    const flag = cookie.httpOnly ? 'TRUE' : 'FALSE';
+                    const path = cookie.path || '/';
+                    const secure = cookie.secure ? 'TRUE' : 'FALSE';
+                    const expiration = cookie.expires ? Math.floor(cookie.expires) : '0';
+                    return `${domain}\t${flag}\t${path}\t${secure}\t${expiration}\t${cookie.name}\t${cookie.value}`;
+                }).join('\n');
+                
+                await fs.writeFile(cookiesPath, `# Netscape HTTP Cookie File\n${netscapeCookies}`, 'utf8');
+                console.log(`✅ Extracted ${youtubeCookies.length} cookies with CAPTCHA handling to ${cookiesPath}`);
+                
+                return youtubeCookies;
+            } else {
+                throw new Error('No YouTube cookies found after CAPTCHA solving');
+            }
+            
+        } finally {
+            await browser.close();
+        }
+    }
+    
+    // Automatic CAPTCHA-aware cookie refresh
+    async refreshCookiesWithCaptchaHandling() {
+        try {
+            console.log('🔄 Starting automatic cookie refresh with CAPTCHA handling...');
+            
+            // First try normal extraction
+            try {
+                await this.extractYouTubePremiumCookies();
+                console.log('✅ Cookie refresh completed without CAPTCHA');
+                return;
+            } catch (normalError) {
+                console.log('ℹ️ Normal cookie extraction failed, trying with CAPTCHA handling...');
+            }
+            
+            // If normal extraction fails, try with CAPTCHA solving
+            await this.extractCookiesWithCaptchaSolving('https://www.youtube.com');
+            console.log('✅ Cookie refresh completed with CAPTCHA handling');
+            
+        } catch (error) {
+            console.error('❌ Cookie refresh with CAPTCHA handling failed:', error.message);
+            throw error;
         }
     }
     
@@ -2015,6 +2701,184 @@ app.get('/api/bypass-status', (req, res) => {
   });
 });
 
+// Performance monitoring endpoint
+app.get('/api/performance', (req, res) => {
+  try {
+    const metrics = youtubeBypass.getPerformanceMetrics();
+    const systemInfo = {
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      timestamp: new Date().toISOString(),
+      nodeVersion: process.version,
+      platform: process.platform
+    };
+    
+    res.json({
+      status: 'success',
+      data: {
+        bypassMetrics: metrics,
+        systemInfo: systemInfo,
+        proxyStatus: {
+          enabled: youtubeBypass.proxyList && youtubeBypass.proxyList.length > 0,
+          count: youtubeBypass.proxyList ? youtubeBypass.proxyList.length : 0,
+          currentIndex: youtubeBypass.currentProxyIndex || 0
+        },
+        cookieStatus: {
+          enabled: youtubeBypass.cookieRotation && youtubeBypass.cookieRotation.length > 0,
+          count: youtubeBypass.cookieRotation ? youtubeBypass.cookieRotation.length : 0,
+          currentIndex: youtubeBypass.currentCookieIndex || 0
+        }
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error getting performance metrics:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to retrieve performance metrics',
+      error: error.message
+    });
+  }
+});
+
+// Advanced monitoring dashboard endpoint
+app.get('/api/dashboard', (req, res) => {
+  try {
+    const metrics = youtubeBypass.getPerformanceMetrics();
+    const now = Date.now();
+    
+    // Calculate additional dashboard metrics
+    const recentRequests = (youtubeBypass.requestHistory || []).filter(req => req.timestamp > now - 3600000);
+    const recentFailures = (youtubeBypass.failureHistory || []).filter(fail => fail.timestamp > now - 3600000);
+    
+    // Failure type distribution
+    const failureDistribution = {};
+    recentFailures.forEach(fail => {
+      failureDistribution[fail.type] = (failureDistribution[fail.type] || 0) + 1;
+    });
+    
+    // Request pattern analysis
+    const hourlyPattern = {};
+    recentRequests.forEach(req => {
+      const hour = new Date(req.timestamp).getHours();
+      hourlyPattern[hour] = (hourlyPattern[hour] || 0) + 1;
+    });
+    
+    // Performance trends
+    const avgDelayTrend = recentRequests.length > 0 ? 
+      recentRequests.reduce((sum, req) => sum + (req.delay || 0), 0) / recentRequests.length : 0;
+    
+    const dashboard = {
+      overview: {
+        totalRequests: recentRequests.length,
+        totalFailures: recentFailures.length,
+        successRate: recentRequests.length > 0 ? 
+          ((recentRequests.length - recentFailures.length) / recentRequests.length * 100).toFixed(1) + '%' : 'N/A',
+        avgResponseDelay: Math.round(avgDelayTrend / 1000) + 's',
+        circuitBreakerStatus: youtubeBypass.isCircuitBreakerActive() ? 'ACTIVE' : 'INACTIVE',
+        adaptiveMultiplier: (youtubeBypass.adaptiveMultiplier || 1.0).toFixed(2) + 'x'
+      },
+      metrics: metrics,
+      analysis: {
+        failureDistribution: failureDistribution,
+        hourlyRequestPattern: hourlyPattern,
+        peakHour: Object.keys(hourlyPattern).reduce((a, b) => hourlyPattern[a] > hourlyPattern[b] ? a : b, '0'),
+        consecutiveFailures: youtubeBypass.consecutiveFailures || 0,
+        lastSuccessTime: youtubeBypass.lastSuccessTime ? 
+          new Date(youtubeBypass.lastSuccessTime).toISOString() : 'Never'
+      },
+      recommendations: generateRecommendations(metrics, failureDistribution, recentRequests.length)
+    };
+    
+    res.json({
+      status: 'success',
+      timestamp: new Date().toISOString(),
+      data: dashboard
+    });
+  } catch (error) {
+    console.error('❌ Error generating dashboard:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to generate dashboard',
+      error: error.message
+    });
+  }
+});
+
+// Generate intelligent recommendations based on performance data
+function generateRecommendations(metrics, failureDistribution, requestCount) {
+  const recommendations = [];
+  
+  // Success rate recommendations
+  const successRate = parseFloat(metrics['15min'].successRate) || 0;
+  if (successRate < 50) {
+    recommendations.push({
+      type: 'critical',
+      category: 'success_rate',
+      message: 'Success rate is critically low. Consider enabling more proxies or reducing request frequency.',
+      action: 'Enable proxy rotation and increase delays'
+    });
+  } else if (successRate < 80) {
+    recommendations.push({
+      type: 'warning',
+      category: 'success_rate',
+      message: 'Success rate could be improved. Review failure patterns and adjust strategies.',
+      action: 'Analyze failure types and optimize accordingly'
+    });
+  }
+  
+  // Failure pattern recommendations
+  if (failureDistribution['bot_detection'] > 3) {
+    recommendations.push({
+      type: 'critical',
+      category: 'bot_detection',
+      message: 'High bot detection rate. Implement better user agent rotation and request patterns.',
+      action: 'Enable mobile emulation and vary request timing'
+    });
+  }
+  
+  if (failureDistribution['rate_limit'] > 5) {
+    recommendations.push({
+      type: 'warning',
+      category: 'rate_limiting',
+      message: 'Frequent rate limiting detected. Increase delays between requests.',
+      action: 'Reduce request frequency and implement longer delays'
+    });
+  }
+  
+  // Request volume recommendations
+  if (requestCount > 100) {
+    recommendations.push({
+      type: 'info',
+      category: 'volume',
+      message: 'High request volume detected. Monitor for potential rate limiting.',
+      action: 'Consider implementing request queuing'
+    });
+  }
+  
+  // Circuit breaker recommendations
+  if (metrics.circuitBreakerActive) {
+    recommendations.push({
+      type: 'warning',
+      category: 'circuit_breaker',
+      message: 'Circuit breaker is active. System is in protective mode.',
+      action: 'Wait for recovery or investigate underlying issues'
+    });
+  }
+  
+  // Performance recommendations
+  const avgDelay = parseInt(metrics['15min'].avgDelay) || 0;
+  if (avgDelay > 30) {
+    recommendations.push({
+      type: 'info',
+      category: 'performance',
+      message: 'Average delays are high. System is being conservative.',
+      action: 'Monitor success rates and consider optimizing if stable'
+    });
+  }
+  
+  return recommendations;
+}
+
 // Get video information (duration, title, etc.) without downloading
 app.post('/api/video-info', async (req, res) => {
   const { url } = req.body;
@@ -2170,13 +3034,46 @@ app.post('/api/video-info', async (req, res) => {
                       platform: detectPlatform(url)
                     };
                     console.log(`✅ ${strategy} strategy succeeded${region ? ` with ${region} proxy` : ''}`);
+                    
+                    // Record success for intelligent backoff
+                    youtubeBypass.recordSuccess();
+                    
                     resolve(info);
                   } catch (parseError) {
                     console.error(`❌ Error parsing ${strategy} JSON:`, parseError.message);
+                    
+                    // Record failure for intelligent backoff
+                    youtubeBypass.recordFailure('parse_error');
+                    
                     reject(new Error(`Parse error: ${parseError.message}`));
                   }
                 } else {
                   console.log(`❌ ${strategy} strategy failed${region ? ` with ${region} proxy` : ''}: ${stderr.slice(0, 200)}`);
+                  
+                  // Determine failure type for better tracking
+                  let failureType = 'unknown';
+                  if (stderr.includes('Sign in to confirm')) {
+                    failureType = 'bot_detection';
+                  } else if (stderr.includes('Video unavailable')) {
+                    failureType = 'video_unavailable';
+                  } else if (stderr.includes('Private video')) {
+                    failureType = 'private_video';
+                  } else if (stderr.includes('timeout')) {
+                    failureType = 'timeout';
+                  } else if (stderr.includes('HTTP Error 429')) {
+                    failureType = 'rate_limit';
+                  } else if (stderr.includes('HTTP Error 403')) {
+                    failureType = 'forbidden';
+                  }
+                  
+                  // Record failure with type for intelligent backoff
+                  youtubeBypass.recordFailure(failureType);
+                  
+                  // Mark proxy as failed if using one
+                  if (proxyConfig) {
+                    youtubeBypass.markProxyFailed(proxyConfig.url, failureType);
+                  }
+                  
                   reject(new Error(`Strategy failed: ${stderr}`));
                 }
               });
@@ -2188,8 +3085,34 @@ app.post('/api/video-info', async (req, res) => {
             });
           };
           
-          // Define strategy configurations
+          // Define enhanced strategy configurations with mobile app emulation
           const strategies = [
+            {
+              name: 'YouTube Music Android',
+              args: [
+                '--dump-json', '--no-warnings', '--no-cache-dir',
+                '--user-agent', 'com.google.android.apps.youtube.music/5.16.51 (Linux; U; Android 11) gzip',
+                '--extractor-args', 'youtube:player_client=youtube_music_android',
+                '--add-header', 'X-YouTube-Client-Name:21',
+                '--add-header', 'X-YouTube-Client-Version:5.16.51',
+                '--socket-timeout', '60',
+                '--retries', '2',
+                '--sleep-interval', '2'
+              ]
+            },
+            {
+              name: 'YouTube Music iOS',
+              args: [
+                '--dump-json', '--no-warnings', '--no-cache-dir',
+                '--user-agent', 'com.google.ios.youtubemusic/5.21 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)',
+                '--extractor-args', 'youtube:player_client=youtube_music_ios',
+                '--add-header', 'X-YouTube-Client-Name:26',
+                '--add-header', 'X-YouTube-Client-Version:5.21',
+                '--socket-timeout', '60',
+                '--retries', '2',
+                '--sleep-interval', '2'
+              ]
+            },
             {
               name: 'Android TV',
               args: [
@@ -2201,6 +3124,30 @@ app.post('/api/video-info', async (req, res) => {
                 '--socket-timeout', '60',
                 '--retries', '2',
                 '--sleep-interval', '3'
+              ]
+            },
+            {
+              name: 'Android TestSuite',
+              args: [
+                '--dump-json', '--no-warnings', '--no-cache-dir',
+                '--user-agent', 'com.google.android.youtube/17.31.35 (Linux; U; Android 11) gzip',
+                '--extractor-args', 'youtube:player_client=android_testsuite',
+                '--add-header', 'X-YouTube-Client-Name:30',
+                '--add-header', 'X-YouTube-Client-Version:17.31.35',
+                '--socket-timeout', '60',
+                '--retries', '2',
+                '--sleep-interval', '2'
+              ]
+            },
+            {
+              name: 'Mobile Web Bypass',
+              args: [
+                '--dump-json', '--no-warnings', '--no-cache-dir',
+                '--extractor-args', 'youtube:player_client=mweb_bypass',
+                '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_6 like Mac OS X) AppleWebKit/605.1.15',
+                '--socket-timeout', '60',
+                '--retries', '2',
+                '--sleep-interval', '2'
               ]
             },
             {
@@ -2227,6 +3174,25 @@ app.post('/api/video-info', async (req, res) => {
           const regions = ['US', 'EU', 'APAC', null]; // null = no proxy
           
           const executeStrategiesWithProxyRotation = async () => {
+            // Implement rate limiting before executing strategies
+            await youtubeBypass.implementRateLimit();
+            
+            // Check and refresh cookies if needed
+            await youtubeBypass.refreshCookiesIfNeeded();
+            
+            // Try YouTube Premium cookies first if available
+            try {
+              console.log('🎵 Attempting YouTube Premium cookie extraction');
+              await youtubeBypass.extractYouTubePremiumCookies();
+            } catch (premiumError) {
+              console.log('ℹ️ YouTube Premium cookies not available, continuing with standard methods');
+              // Try rotating existing cookies as fallback
+              try {
+                await youtubeBypass.rotateCookies();
+              } catch (rotateError) {
+                console.log('ℹ️ Cookie rotation failed, continuing without rotation');
+              }
+            }
             for (const strategy of strategies) {
               for (const region of regions) {
                 try {
@@ -2245,15 +3211,22 @@ app.post('/api/video-info', async (req, res) => {
             try {
               const browserInfo = await youtubeBypass.extractWithBrowser(url);
               console.log('✅ Browser automation strategy succeeded');
+              
+              // Record success for intelligent backoff
+              youtubeBypass.recordSuccess();
+              
               return res.json(browserInfo);
             } catch (browserError) {
               console.error('❌ Browser automation failed:', browserError.message);
               
-              // Final fallback - cookie refresh
-              console.log('🍪 Attempting cookie refresh as last resort');
+              // Record failure for intelligent backoff
+              youtubeBypass.recordFailure('browser_automation');
+              
+              // Final fallback - CAPTCHA-aware cookie refresh
+              console.log('🍪 Attempting CAPTCHA-aware cookie refresh as last resort');
               try {
-                await youtubeBypass.extractAndSaveCookies(url);
-                console.log('✅ Cookie refresh completed');
+                await youtubeBypass.refreshCookiesWithCaptchaHandling();
+                console.log('✅ CAPTCHA-aware cookie refresh completed');
                 
                 return res.status(500).json({ 
                   error: 'Failed to get video information - All bypass methods exhausted',

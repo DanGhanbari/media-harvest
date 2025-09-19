@@ -4,13 +4,18 @@
 
 // Available backend servers
 export const BACKEND_SERVERS = {
-  RAILWAY: 'https://media-harvest-production.up.railway.app',
   VPS: 'http://57.129.63.234:3001',
   LOCAL: 'http://localhost:3001'
 } as const;
 
 // Get the API base URL from environment variables
 const getApiBaseUrl = (): string => {
+  // Check if we have a custom API base URL from environment variables
+  const envApiUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envApiUrl) {
+    return envApiUrl;
+  }
+
   // Check if we're in development mode or running locally
   const isDevelopment = import.meta.env.DEV || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   
@@ -19,8 +24,8 @@ const getApiBaseUrl = (): string => {
     return BACKEND_SERVERS.LOCAL;
   }
 
-  // In production, use Railway server for HTTPS support
-  return BACKEND_SERVERS.RAILWAY;
+  // In production, use VPS server (Railway is currently down)
+  return BACKEND_SERVERS.VPS;
 };
 
 

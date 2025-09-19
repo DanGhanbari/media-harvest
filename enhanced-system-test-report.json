@@ -1,0 +1,296 @@
+{
+  "timestamp": "2025-09-17T18:26:26.767Z",
+  "summary": {
+    "status": "ALL_PASSED",
+    "totalTests": 8,
+    "passedTests": 8,
+    "failedTests": 0,
+    "successRate": "100.0%",
+    "timestamp": "2025-09-17T18:26:59.591Z"
+  },
+  "tests": [
+    {
+      "name": "Performance Endpoint",
+      "status": "PASS",
+      "data": {
+        "status": "success",
+        "data": {
+          "bypassMetrics": {
+            "5min": {
+              "totalRequests": 0,
+              "totalFailures": 0,
+              "successRate": "N/A",
+              "avgDelay": "N/A"
+            },
+            "15min": {
+              "totalRequests": 0,
+              "totalFailures": 0,
+              "successRate": "N/A",
+              "avgDelay": "N/A"
+            },
+            "1hour": {
+              "totalRequests": 0,
+              "totalFailures": 0,
+              "successRate": "N/A",
+              "avgDelay": "N/A"
+            },
+            "consecutiveFailures": 0,
+            "adaptiveMultiplier": "1.00x",
+            "circuitBreakerActive": false,
+            "lastSuccessTime": "Never"
+          },
+          "systemInfo": {
+            "uptime": 11.71856387,
+            "memory": {
+              "rss": 78794752,
+              "heapTotal": 20713472,
+              "heapUsed": 18467784,
+              "external": 3696821,
+              "arrayBuffers": 87158
+            },
+            "timestamp": "2025-09-17T18:26:26.789Z",
+            "nodeVersion": "v22.18.0",
+            "platform": "darwin"
+          },
+          "proxyStatus": {
+            "count": 0,
+            "currentIndex": 0
+          },
+          "cookieStatus": {
+            "count": 0,
+            "currentIndex": 0
+          }
+        }
+      },
+      "timestamp": "2025-09-17T18:26:26.795Z"
+    },
+    {
+      "name": "Dashboard Endpoint",
+      "status": "PASS",
+      "data": {
+        "status": "success",
+        "timestamp": "2025-09-17T18:26:26.797Z",
+        "data": {
+          "overview": {
+            "totalRequests": 0,
+            "totalFailures": 0,
+            "successRate": "N/A",
+            "avgResponseDelay": "0s",
+            "circuitBreakerStatus": "INACTIVE",
+            "adaptiveMultiplier": "1.00x"
+          },
+          "metrics": {
+            "5min": {
+              "totalRequests": 0,
+              "totalFailures": 0,
+              "successRate": "N/A",
+              "avgDelay": "N/A"
+            },
+            "15min": {
+              "totalRequests": 0,
+              "totalFailures": 0,
+              "successRate": "N/A",
+              "avgDelay": "N/A"
+            },
+            "1hour": {
+              "totalRequests": 0,
+              "totalFailures": 0,
+              "successRate": "N/A",
+              "avgDelay": "N/A"
+            },
+            "consecutiveFailures": 0,
+            "adaptiveMultiplier": "1.00x",
+            "circuitBreakerActive": false,
+            "lastSuccessTime": "Never"
+          },
+          "analysis": {
+            "failureDistribution": {},
+            "hourlyRequestPattern": {},
+            "peakHour": "0",
+            "consecutiveFailures": 0,
+            "lastSuccessTime": "Never"
+          },
+          "recommendations": [
+            {
+              "type": "critical",
+              "category": "success_rate",
+              "message": "Success rate is critically low. Consider enabling more proxies or reducing request frequency.",
+              "action": "Enable proxy rotation and increase delays"
+            }
+          ]
+        }
+      },
+      "timestamp": "2025-09-17T18:26:26.798Z"
+    },
+    {
+      "name": "Advanced Rate Limiting",
+      "status": "PASS",
+      "metrics": {
+        "totalRequests": 5,
+        "successfulRequests": 5,
+        "successRate": 1,
+        "avgResponseTime": 2898.8,
+        "totalTime": 18500
+      },
+      "requests": [
+        {
+          "index": 1,
+          "success": true,
+          "responseTime": 3039,
+          "status": 200,
+          "timestamp": "2025-09-17T18:26:29.837Z"
+        },
+        {
+          "index": 2,
+          "success": true,
+          "responseTime": 2788,
+          "status": 200,
+          "timestamp": "2025-09-17T18:26:33.627Z"
+        },
+        {
+          "index": 3,
+          "success": true,
+          "responseTime": 2807,
+          "status": 200,
+          "timestamp": "2025-09-17T18:26:37.435Z"
+        },
+        {
+          "index": 4,
+          "success": true,
+          "responseTime": 2964,
+          "status": 200,
+          "timestamp": "2025-09-17T18:26:41.400Z"
+        },
+        {
+          "index": 5,
+          "success": true,
+          "responseTime": 2896,
+          "status": 200,
+          "timestamp": "2025-09-17T18:26:45.298Z"
+        }
+      ],
+      "timestamp": "2025-09-17T18:26:45.298Z"
+    },
+    {
+      "name": "Adaptive Throttling",
+      "status": "PASS",
+      "metrics": {
+        "initialMultiplier": 1,
+        "finalMultiplier": 1,
+        "multiplierChange": 0,
+        "requests": [
+          {
+            "index": 1,
+            "success": true,
+            "responseTime": 3017
+          },
+          {
+            "index": 2,
+            "success": true,
+            "responseTime": 2483
+          },
+          {
+            "index": 3,
+            "success": true,
+            "responseTime": 2779
+          }
+        ]
+      },
+      "timestamp": "2025-09-17T18:26:59.586Z"
+    },
+    {
+      "name": "Circuit Breaker Status Check",
+      "status": "PASS",
+      "metrics": {
+        "initialStatus": "INACTIVE",
+        "consecutiveFailures": 0
+      },
+      "timestamp": "2025-09-17T18:26:59.587Z"
+    },
+    {
+      "name": "Failure Pattern Analysis",
+      "status": "PASS",
+      "data": {
+        "failureDistribution": {},
+        "totalFailureTypes": 0
+      },
+      "timestamp": "2025-09-17T18:26:59.589Z"
+    },
+    {
+      "name": "Performance Metrics Collection",
+      "status": "PASS",
+      "timestamp": "2025-09-17T18:26:59.590Z"
+    },
+    {
+      "name": "Dashboard Analytics",
+      "status": "PASS",
+      "data": {
+        "overview": {
+          "totalRequests": 0,
+          "totalFailures": 0,
+          "successRate": "N/A",
+          "avgResponseDelay": "0s",
+          "circuitBreakerStatus": "INACTIVE",
+          "adaptiveMultiplier": "1.00x"
+        },
+        "recommendationCount": 1
+      },
+      "timestamp": "2025-09-17T18:26:59.591Z"
+    }
+  ],
+  "performance": {
+    "metrics": {
+      "5min": {
+        "totalRequests": 0,
+        "totalFailures": 0,
+        "successRate": "N/A",
+        "avgDelay": "N/A"
+      },
+      "15min": {
+        "totalRequests": 0,
+        "totalFailures": 0,
+        "successRate": "N/A",
+        "avgDelay": "N/A"
+      },
+      "1hour": {
+        "totalRequests": 0,
+        "totalFailures": 0,
+        "successRate": "N/A",
+        "avgDelay": "N/A"
+      },
+      "consecutiveFailures": 0,
+      "adaptiveMultiplier": "1.00x",
+      "circuitBreakerActive": false,
+      "lastSuccessTime": "Never"
+    },
+    "systemInfo": {
+      "uptime": 44.519899589,
+      "memory": {
+        "rss": 82325504,
+        "heapTotal": 21499904,
+        "heapUsed": 20015176,
+        "external": 3821651,
+        "arrayBuffers": 103542
+      },
+      "timestamp": "2025-09-17T18:26:59.589Z",
+      "nodeVersion": "v22.18.0",
+      "platform": "darwin"
+    },
+    "proxyStatus": {
+      "count": 0,
+      "currentIndex": 0
+    },
+    "cookieStatus": {
+      "count": 0,
+      "currentIndex": 0
+    }
+  },
+  "recommendations": [
+    {
+      "type": "critical",
+      "category": "success_rate",
+      "message": "Success rate is critically low. Consider enabling more proxies or reducing request frequency.",
+      "action": "Enable proxy rotation and increase delays"
+    }
+  ]
+}
