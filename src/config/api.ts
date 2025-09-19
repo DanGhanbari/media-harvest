@@ -4,7 +4,7 @@
 
 // Available backend servers
 export const BACKEND_SERVERS = {
-  VPS: 'http://57.129.63.234:3001',
+  VPS: 'https://57.129.63.234:3001',
   LOCAL: 'http://localhost:3001'
 } as const;
 
@@ -17,14 +17,15 @@ const getApiBaseUrl = (): string => {
   }
 
   // Check if we're in development mode or running locally
-  const isDevelopment = import.meta.env.DEV || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const isDevelopment = import.meta.env.DEV;
+  const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   
   // In development or local environment, use local backend
-  if (isDevelopment) {
+  if (isDevelopment && isLocalhost) {
     return BACKEND_SERVERS.LOCAL;
   }
 
-  // In production, use VPS server (Railway is currently down)
+  // In production or when served from external domain, use VPS server
   return BACKEND_SERVERS.VPS;
 };
 
