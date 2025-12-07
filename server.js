@@ -50,6 +50,27 @@ class YouTubeBypassManager {
             fs.mkdirSync(cookieDir, { recursive: true });
         }
         this.cookieJar = path.join(cookieDir, 'youtube_session.txt');
+
+        // Allow supplying cookies via environment variables in production
+        // Accept either raw Netscape-format content or Base64-encoded content
+        try {
+            const rawEnvCookies = process.env.YT_COOKIES || process.env.YOUTUBE_COOKIES || null;
+            const b64EnvCookies = process.env.YT_COOKIES_BASE64 || process.env.YOUTUBE_COOKIES_BASE64 || null;
+
+            if (b64EnvCookies) {
+                const decoded = Buffer.from(b64EnvCookies, 'base64').toString('utf8');
+                fs.writeFileSync(this.cookieJar, decoded);
+                console.log('🍪 Loaded YouTube cookies from Base64 env into .cookies/youtube_session.txt');
+            } else if (rawEnvCookies) {
+                const content = rawEnvCookies.startsWith('# Netscape HTTP Cookie File')
+                    ? rawEnvCookies
+                    : `# Netscape HTTP Cookie File\n\n${rawEnvCookies}`;
+                fs.writeFileSync(this.cookieJar, content);
+                console.log('🍪 Loaded YouTube cookies from env into .cookies/youtube_session.txt');
+            }
+        } catch (e) {
+            console.warn('⚠️ Failed to load cookies from environment variables:', e.message);
+        }
     }
 
     // Enhanced cookie authentication with session persistence
