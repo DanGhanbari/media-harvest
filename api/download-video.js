@@ -9,7 +9,7 @@ export default async function handler(req, res) {
   const BACKEND_URL = process.env.RAILWAY_BACKEND_URL || DEFAULT_BACKEND_URL;
   const usingDefault = !process.env.RAILWAY_BACKEND_URL;
   const TIMEOUT_MS = 45000; // align with client-side ~50s timeout to avoid premature 504s
-  const WARMUP_TIMEOUT_MS = 2000; // quick ping to wake backend
+  const WARMUP_TIMEOUT_MS = 4000; // quick ping to wake backend, allow more time for cold start
   
   try {
     const { url, quality, startTime, endTime } = req.body || {};
@@ -52,14 +52,10 @@ export default async function handler(req, res) {
       console.warn('Backend warm-up failed:', warmErr?.message || warmErr);
     }
 
-    // If backend did not respond to any warm-up ping, fail fast with 503
+    // If backend did not respond to any warm-up ping, proceed anyway.
+    // Some deployments do not expose /health; the main request may still succeed.
     if (!backendReady) {
-      return res.status(503).json({
-        error: 'Backend unavailable',
-        details: 'Railway backend did not respond to warm-up ping',
-        backendSource: usingDefault ? 'default' : 'env',
-        retry_hint: 'Retry after a few seconds; ensure Railway service is awake and responsive.'
-      });
+      console.warn('Proceeding without warm-up confirmation. Backend may be cold or /health missing.');
     }
 
     // Helper to perform the download request with timeout
