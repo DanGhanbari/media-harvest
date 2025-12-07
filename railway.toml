@@ -6,8 +6,8 @@ nixpacksConfigPath = "nixpacks.toml"
 buildTimeout = 900  # 15 minutes
 
 [deploy]
-# Start command for Railway deployment (simplified server without Puppeteer)
-startCommand = "node server_railway.js"
+# Start command for Railway deployment
+startCommand = "node server.js"
 # Restart policy
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10

@@ -8,13 +8,28 @@ export default async function handler(req, res) {
   const DEFAULT_BACKEND_URL = 'https://media-harvest-production.up.railway.app';
   const BACKEND_URL = process.env.RAILWAY_BACKEND_URL || DEFAULT_BACKEND_URL;
   const usingDefault = !process.env.RAILWAY_BACKEND_URL;
-  const TIMEOUT_MS = 45000; // align with client-side ~50s timeout to avoid premature 504s
+  // Keep proxy timeout conservative to stay under Vercel Serverless limits
+  const TIMEOUT_MS = 9000; // Vercel serverless often limits to ~10s; stay below
   const WARMUP_TIMEOUT_MS = 4000; // quick ping to wake backend, allow more time for cold start
   
   try {
     const { url, quality, startTime, endTime } = req.body || {};
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'Missing or invalid url in request body' });
+    }
+
+    // Prefer offloading large streaming workloads to Railway via 307 redirect
+    // Use query/body flags to force proxying when explicitly requested
+    const preferProxy = (req.query && req.query.proxy === '1') || (req.body && req.body.preferProxy === true);
+    if (!preferProxy) {
+      const redirectUrl = `${BACKEND_URL}/api/download-video`;
+      // Log and perform a 307 redirect which preserves the method and body
+      console.log('Offloading download via 307 redirect to backend:', {
+        redirectUrl,
+        backendSource: usingDefault ? 'default' : 'env'
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.redirect(307, redirectUrl);
     }
     // Basic logging to aid diagnostics without leaking sensitive data
     console.log('Proxying download request:', {
@@ -58,7 +73,7 @@ export default async function handler(req, res) {
       console.warn('Proceeding without warm-up confirmation. Backend may be cold or /health missing.');
     }
 
-    // Helper to perform the download request with timeout
+    // Helper to perform the download request with timeout (proxy mode)
     const doDownload = async () => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -136,7 +151,7 @@ export default async function handler(req, res) {
       res.setHeader('Content-Disposition', contentDisposition);
     }
     
-    // Stream the response
+    // Stream the response (proxy mode only)
     const buffer = await response.arrayBuffer();
     return res.status(200).send(Buffer.from(buffer));
   } catch (error) {
