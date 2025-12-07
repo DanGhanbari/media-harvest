@@ -343,7 +343,7 @@ export const MediaDownloader = () => {
                               Quality Settings:
                             </label>
                             <Select
-                              value={selectedQuality[item.url] || 'maximum'}
+                              value={selectedQuality[item.url] || 'high'}
                               onValueChange={(value) => {
                                 setSelectedQuality(prev => ({ ...prev, [item.url]: value }));
                               }}
@@ -388,12 +388,17 @@ export const MediaDownloader = () => {
                               
                               // Trigger the download with the selected time range
                               try {
-                                const quality = selectedQuality[item.url] || 'maximum';
+                                const quality = selectedQuality[item.url] || 'high';
+                                // Notify user of selected quality and time range at start
+                                const timeRangeText = `${formatTime(startTime)} - ${formatTime(endTime)}`;
+                                toast({
+                                  title: "Starting Download",
+                                  description: `${item.filename} (${timeRangeText}) – Quality: ${quality}`,
+                                });
                                 await DownloadService.downloadMedia(item, quality, (progress) => {
                                   setSegmentProgress(prev => ({ ...prev, [item.url]: progress }));
                                 }, startTime, endTime);
                                 
-                                const timeRangeText = `${formatTime(startTime)} - ${formatTime(endTime)}`;
                                 toast({
                                   title: "Download Complete",
                                   description: `${item.filename} (${timeRangeText}) has been downloaded successfully`,

@@ -135,7 +135,13 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
     setDownloadProgress(prev => ({ ...prev, [itemId]: 0 }));
 
     try {
-      const quality = selectedQuality[itemId] || 'maximum';
+      const quality = selectedQuality[itemId] || 'high';
+
+      // Notify user of selected quality at download start
+      toast({
+        title: "Starting Download",
+        description: `${item.filename} – Quality: ${quality}`,
+      });
       
       // Use the download service with progress callback and time range if provided
       await DownloadService.downloadMedia(item, quality, (progress) => {
@@ -357,7 +363,7 @@ export const MediaGrid = ({ items }: MediaGridProps) => {
                        Quality Settings:
                      </label>
                     <Select
-                      value={selectedQuality[item.url] || 'maximum'}
+                      value={selectedQuality[item.url] || 'high'}
                       onValueChange={(value) => {
                         setSelectedQuality(prev => ({ ...prev, [item.url]: value }));
                         // Reset downloaded state when quality changes to show original button UI

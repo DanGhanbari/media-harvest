@@ -533,7 +533,7 @@ export class DownloadService {
     }
   }
   
-  private static async downloadFromPlatform(item: MediaItem, quality: string = 'maximum', signal?: AbortSignal, onProgress?: (progress: number) => void, startTime?: string | number, endTime?: string | number): Promise<void> {
+  private static async downloadFromPlatform(item: MediaItem, quality: string = 'high', signal?: AbortSignal, onProgress?: (progress: number) => void, startTime?: string | number, endTime?: string | number): Promise<void> {
     const isYouTube = this.isYouTubeUrl(item.url);
     
     const downloadServices = [
@@ -541,10 +541,10 @@ export class DownloadService {
       async () => {
         return this.tryDownloadWithEndpoint(API_ENDPOINTS.DOWNLOAD_VIDEO, item, quality, signal, startTime, endTime, 'primary');
       },
-      // Service 2: Fallback to VPS backend for YouTube when primary fails with 403
+      // Service 2: Fallback backend for YouTube when primary fails with 403
       ...(isYouTube ? [async () => {
-        console.log('🔄 DownloadService: Trying VPS fallback for YouTube download');
-        return this.tryDownloadWithEndpoint(FALLBACK_API_ENDPOINTS.DOWNLOAD_VIDEO, item, quality, signal, startTime, endTime, 'VPS fallback');
+        console.log('🔄 DownloadService: Trying fallback backend for YouTube download');
+        return this.tryDownloadWithEndpoint(FALLBACK_API_ENDPOINTS.DOWNLOAD_VIDEO, item, quality, signal, startTime, endTime, 'fallback');
       }] : [])
     ];
 
@@ -562,7 +562,7 @@ export class DownloadService {
         if (!isYouTube || !lastError.message.includes('403') || i === downloadServices.length - 1) {
           // Don't continue for non-YouTube or if this was the last service
           if (i < downloadServices.length - 1 && isYouTube && lastError.message.includes('403')) {
-            console.log('🔄 DownloadService: YouTube 403 error detected, trying VPS fallback...');
+            console.log('🔄 DownloadService: YouTube 403 error detected, trying fallback backend...');
             continue;
           }
           break;
@@ -570,7 +570,11 @@ export class DownloadService {
       }
     }
     
-    throw new Error(`All download services failed for ${this.getPlatformName(item.url)}. To use yt-dlp backend, please install yt-dlp (pip install yt-dlp) and run the server with 'npm run dev:full'. Last error: ${lastError?.message}`);
+    if (lastError?.message.includes('Requested format is not available')) {
+      throw new Error(`🚫 This video does not have any downloadable formats available. It might be restricted or only contain image formats.`);
+    }
+    
+    throw new Error(`All download services failed for ${this.getPlatformName(item.url)}. Last error: ${lastError?.message}`);
   }
 
   private static async tryDownloadWithEndpoint(
@@ -610,6 +614,19 @@ export class DownloadService {
       };
 
       console.log(`📡 DownloadService: Making fetch request to ${endpoint} (${serviceName})`);
+      // Debug: log the request body including selected quality and times
+      try {
+        console.log('📡 DownloadService: Request body payload', {
+          url: requestBody.url,
+          filename: requestBody.filename,
+          quality: requestBody.quality,
+          sessionId: requestBody.sessionId,
+          startTime: requestBody.startTime,
+          endTime: requestBody.endTime,
+        });
+      } catch (e) {
+        // Non-blocking: ensure logging doesn't interfere with download
+      }
       
       const response = await fetch(endpoint, {
         method: 'POST',

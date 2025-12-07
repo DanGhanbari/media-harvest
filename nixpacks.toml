@@ -10,3 +10,5 @@ cmds = ['npm ci', 'npm run build']
 
 [phases.start]
 cmd = 'node server.js'
+
+# Force rebuild timestamp: 2025-01-15-14:45:00

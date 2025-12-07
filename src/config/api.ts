@@ -2,11 +2,14 @@
 // This file handles the API base URL configuration for different environments
 // Updated to support intelligent backend fallback for YouTube downloads
 
-// Available backend servers
+// Backend configuration
+// In production (Vercel), use relative URLs to hit serverless functions
+// In development, prefer local backend, otherwise allow explicit override via VITE_BACKEND_URL
 export const BACKEND_SERVERS = {
-  VPS: 'http://57.129.63.234:3001',
-  LOCAL: 'http://localhost:3001',
-  VERCEL: '' // Relative URLs for Vercel serverless functions
+  // Use relative URLs in both dev and prod; Vite proxies /api in dev
+  LOCAL: '',
+  VERCEL: '',
+  EXPLICIT: (import.meta.env.VITE_BACKEND_URL as string) || ''
 } as const;
 
 // Get the API base URL from environment variables
@@ -15,12 +18,13 @@ const getApiBaseUrl = (): string => {
   const isDevelopment = import.meta.env.DEV;
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   
-  // In development or local environment, use local backend
-  if (isDevelopment && isLocalhost) {
-    return BACKEND_SERVERS.LOCAL;
-  }
+  // Explicit override (useful for dev pointing to Railway)
+  if (BACKEND_SERVERS.EXPLICIT) return BACKEND_SERVERS.EXPLICIT;
 
-  // In production (Vercel), use relative URLs to go through serverless functions
+  // In development/local, use relative URLs and rely on Vite proxy
+  if (isDevelopment && isLocalhost) return BACKEND_SERVERS.LOCAL;
+
+  // In production (Vercel), use serverless functions (relative)
   return BACKEND_SERVERS.VERCEL;
 };
 
@@ -28,14 +32,15 @@ const getApiBaseUrl = (): string => {
 const getFallbackApiBaseUrl = (): string => {
   const isDevelopment = import.meta.env.DEV;
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  
-  // In development, fallback to VPS if local fails
-  if (isDevelopment && isLocalhost) {
-    return BACKEND_SERVERS.VPS;
-  }
-  
-  // In production, fallback to VPS if Vercel fails
-  return BACKEND_SERVERS.VPS;
+
+  // Prefer explicit override if set
+  if (BACKEND_SERVERS.EXPLICIT) return BACKEND_SERVERS.EXPLICIT;
+
+  // In development, fallback to relative URLs
+  if (isDevelopment && isLocalhost) return BACKEND_SERVERS.LOCAL;
+
+  // In production, fallback to serverless routes
+  return BACKEND_SERVERS.VERCEL;
 };
 
 export const API_BASE_URL = getApiBaseUrl();
@@ -56,7 +61,7 @@ export const API_ENDPOINTS = {
   VIDEO_INFO: `${API_BASE_URL}/api/video-info`,
 } as const;
 
-// Fallback API endpoints for YouTube downloads (uses VPS backend)
+// Fallback API endpoints for YouTube downloads
 export const FALLBACK_API_ENDPOINTS = {
   QUALITY_OPTIONS: `${FALLBACK_API_BASE_URL}/api/quality-options`,
   DOWNLOAD_VIDEO: `${FALLBACK_API_BASE_URL}/api/download-video`,

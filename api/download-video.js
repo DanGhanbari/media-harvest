@@ -1,15 +1,21 @@
-// Vercel serverless function to proxy download requests to VPS backend
+// Vercel serverless function to proxy download requests to Railway backend
 export default async function handler(req, res) {
   // Only allow POST requests
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const VPS_BACKEND_URL = process.env.VPS_BACKEND_URL || 'http://57.129.63.234:3001';
+  const BACKEND_URL = process.env.RAILWAY_BACKEND_URL;
+  if (!BACKEND_URL) {
+    return res.status(500).json({
+      error: 'Backend URL not configured',
+      details: 'Set environment variable RAILWAY_BACKEND_URL to your Railway backend base URL.'
+    });
+  }
   
   try {
-    // Forward the request to the VPS backend
-    const response = await fetch(`${VPS_BACKEND_URL}/api/download-video`, {
+    // Forward the request to the Railway backend
+    const response = await fetch(`${BACKEND_URL}/api/download-video`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
