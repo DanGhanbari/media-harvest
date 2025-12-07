@@ -7,9 +7,14 @@ export default async function handler(req, res) {
 
   const BACKEND_URL = process.env.RAILWAY_BACKEND_URL;
   if (!BACKEND_URL) {
-    return res.status(500).json({
-      error: 'Backend URL not configured',
-      details: 'Set environment variable RAILWAY_BACKEND_URL to your Railway backend base URL.'
+    // Safe fallback: return static quality options so the UI remains usable
+    return res.status(200).json({
+      options: [
+        { value: 'maximum', label: 'Best Quality', description: 'Best available quality up to 4K' },
+        { value: 'high', label: 'High Quality (1080p)', description: 'Full HD 1080p maximum' },
+        { value: 'medium', label: 'Medium Quality (720p)', description: 'HD 720p maximum' },
+        { value: 'low', label: 'Low Quality (480p)', description: 'SD 480p maximum' }
+      ]
     });
   }
   
