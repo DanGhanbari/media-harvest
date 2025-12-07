@@ -8,7 +8,8 @@ export default async function handler(req, res) {
   const DEFAULT_BACKEND_URL = 'https://media-harvest-production.up.railway.app';
   const BACKEND_URL = process.env.RAILWAY_BACKEND_URL || DEFAULT_BACKEND_URL;
   const usingDefault = !process.env.RAILWAY_BACKEND_URL;
-  const TIMEOUT_MS = 12000; // avoid Vercel 502 by failing fast
+  const TIMEOUT_MS = 45000; // align with client-side ~50s timeout to avoid premature 504s
+  const WARMUP_TIMEOUT_MS = 2000; // quick ping to wake backend
   
   try {
     const { url, quality, startTime, endTime } = req.body || {};
@@ -24,21 +25,74 @@ export default async function handler(req, res) {
       userAgent: req.headers['user-agent'] || 'unknown',
       backendSource: usingDefault ? 'default' : 'env'
     });
-    // Forward the request to the Railway backend with timeout
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    // Warm-up ping to wake sleeping backend instances
+    const warmUpCandidates = [
+      `${BACKEND_URL}/api/health`,
+      `${BACKEND_URL}/health`,
+      `${BACKEND_URL}/`
+    ];
+    try {
+      for (const pingUrl of warmUpCandidates) {
+        const pingController = new AbortController();
+        const pingTimer = setTimeout(() => pingController.abort(), WARMUP_TIMEOUT_MS);
+        const pingRes = await fetch(pingUrl, {
+          method: 'GET',
+          headers: { 'User-Agent': req.headers['user-agent'] || 'Vercel-Proxy/1.0' },
+          signal: pingController.signal
+        }).catch(() => null);
+        clearTimeout(pingTimer);
+        if (pingRes && pingRes.ok) {
+          console.log('Backend warm-up OK:', { url: pingUrl, status: pingRes.status });
+          break;
+        }
+      }
+    } catch (warmErr) {
+      console.warn('Backend warm-up failed:', warmErr?.message || warmErr);
+    }
 
-    const response = await fetch(`${BACKEND_URL}/api/download-video`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': req.headers['user-agent'] || 'Vercel-Proxy/1.0',
-      },
-      body: JSON.stringify(req.body),
-      signal: controller.signal
-    });
+    // Helper to perform the download request with timeout
+    const doDownload = async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      try {
+        const resp = await fetch(`${BACKEND_URL}/api/download-video`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': req.headers['user-agent'] || 'Vercel-Proxy/1.0',
+          },
+          body: JSON.stringify(req.body),
+          signal: controller.signal
+        });
+        return { resp, aborted: false };
+      } catch (e) {
+        return { error: e, aborted: e && e.name === 'AbortError' };
+      } finally {
+        clearTimeout(timer);
+      }
+    };
 
-    clearTimeout(timer);
+    // First attempt
+    let { resp: response, error: firstError, aborted: firstAborted } = await doDownload();
+    // Retry once on timeout
+    if (!response && firstAborted) {
+      console.warn('Download request timed out, retrying once...');
+      await new Promise(r => setTimeout(r, 2000));
+      const second = await doDownload();
+      response = second.resp;
+      if (!response) {
+        const err = second.error || firstError;
+        const isTimeout = second.aborted || firstAborted;
+        return res.status(isTimeout ? 504 : 500).json({
+          error: isTimeout ? 'Download request timed out' : 'Proxy request failed',
+          details: err?.message || String(err),
+          backendSource: usingDefault ? 'default' : 'env',
+          attempts: 2,
+          retry_hint: 'Retry after a few seconds; ensure Railway service is awake and responsive.'
+        });
+      }
+      console.log('Download retry succeeded');
+    }
 
     // Handle different response types
     if (response.headers.get('content-type')?.includes('application/json')) {
