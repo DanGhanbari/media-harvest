@@ -5,17 +5,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const BACKEND_URL = process.env.RAILWAY_BACKEND_URL;
-  if (!BACKEND_URL) {
-    // Graceful fallback: avoid 500s, return structured error with guidance
-    const { url, quality, startTime, endTime } = req.body || {};
-    return res.status(503).json({
-      error: 'Backend URL not configured',
-      details: 'Set environment variable RAILWAY_BACKEND_URL to your Railway backend base URL in Vercel project settings and redeploy.',
-      hint: 'Use your Railway public URL, e.g., https://your-app.up.railway.app',
-      request: { url, quality, startTime, endTime }
-    });
-  }
+  const DEFAULT_BACKEND_URL = 'https://media-harvest-production.up.railway.app';
+  const BACKEND_URL = process.env.RAILWAY_BACKEND_URL || DEFAULT_BACKEND_URL;
+  const usingDefault = !process.env.RAILWAY_BACKEND_URL;
   
   try {
     const { url, quality, startTime, endTime } = req.body || {};
@@ -28,7 +20,8 @@ export default async function handler(req, res) {
       quality,
       startTime,
       endTime,
-      userAgent: req.headers['user-agent'] || 'unknown'
+      userAgent: req.headers['user-agent'] || 'unknown',
+      backendSource: usingDefault ? 'default' : 'env'
     });
     // Forward the request to the Railway backend
     const response = await fetch(`${BACKEND_URL}/api/download-video`, {

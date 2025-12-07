@@ -5,18 +5,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const BACKEND_URL = process.env.RAILWAY_BACKEND_URL;
-  if (!BACKEND_URL) {
-    // Safe fallback: return static quality options so the UI remains usable
-    return res.status(200).json({
-      options: [
-        { value: 'maximum', label: 'Best Quality', description: 'Best available quality up to 4K' },
-        { value: 'high', label: 'High Quality (1080p)', description: 'Full HD 1080p maximum' },
-        { value: 'medium', label: 'Medium Quality (720p)', description: 'HD 720p maximum' },
-        { value: 'low', label: 'Low Quality (480p)', description: 'SD 480p maximum' }
-      ]
-    });
-  }
+  const DEFAULT_BACKEND_URL = 'https://media-harvest-production.up.railway.app';
+  const BACKEND_URL = process.env.RAILWAY_BACKEND_URL || DEFAULT_BACKEND_URL;
+  const usingDefault = !process.env.RAILWAY_BACKEND_URL;
   
   try {
     // Forward the request to the Railway backend
@@ -28,12 +19,13 @@ export default async function handler(req, res) {
     });
 
     const data = await response.json();
-    return res.status(response.status).json(data);
+    return res.status(response.status).json({ ...data, backendSource: usingDefault ? 'default' : 'env' });
   } catch (error) {
     console.error('Proxy error:', error);
     return res.status(500).json({ 
       error: 'Proxy request failed',
-      details: error.message 
+      details: error.message,
+      backendSource: usingDefault ? 'default' : 'env'
     });
   }
 }
