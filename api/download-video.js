@@ -31,6 +31,7 @@ export default async function handler(req, res) {
       `${BACKEND_URL}/health`,
       `${BACKEND_URL}/`
     ];
+    let backendReady = false;
     try {
       for (const pingUrl of warmUpCandidates) {
         const pingController = new AbortController();
@@ -43,11 +44,22 @@ export default async function handler(req, res) {
         clearTimeout(pingTimer);
         if (pingRes && pingRes.ok) {
           console.log('Backend warm-up OK:', { url: pingUrl, status: pingRes.status });
+          backendReady = true;
           break;
         }
       }
     } catch (warmErr) {
       console.warn('Backend warm-up failed:', warmErr?.message || warmErr);
+    }
+
+    // If backend did not respond to any warm-up ping, fail fast with 503
+    if (!backendReady) {
+      return res.status(503).json({
+        error: 'Backend unavailable',
+        details: 'Railway backend did not respond to warm-up ping',
+        backendSource: usingDefault ? 'default' : 'env',
+        retry_hint: 'Retry after a few seconds; ensure Railway service is awake and responsive.'
+      });
     }
 
     // Helper to perform the download request with timeout
