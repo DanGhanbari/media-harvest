@@ -7,13 +7,29 @@ export default async function handler(req, res) {
 
   const BACKEND_URL = process.env.RAILWAY_BACKEND_URL;
   if (!BACKEND_URL) {
-    return res.status(500).json({
+    // Graceful fallback: avoid 500s, return structured error with guidance
+    const { url, quality, startTime, endTime } = req.body || {};
+    return res.status(503).json({
       error: 'Backend URL not configured',
-      details: 'Set environment variable RAILWAY_BACKEND_URL to your Railway backend base URL.'
+      details: 'Set environment variable RAILWAY_BACKEND_URL to your Railway backend base URL in Vercel project settings and redeploy.',
+      hint: 'Use your Railway public URL, e.g., https://your-app.up.railway.app',
+      request: { url, quality, startTime, endTime }
     });
   }
   
   try {
+    const { url, quality, startTime, endTime } = req.body || {};
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid url in request body' });
+    }
+    // Basic logging to aid diagnostics without leaking sensitive data
+    console.log('Proxying download request:', {
+      target: `${BACKEND_URL}/api/download-video`,
+      quality,
+      startTime,
+      endTime,
+      userAgent: req.headers['user-agent'] || 'unknown'
+    });
     // Forward the request to the Railway backend
     const response = await fetch(`${BACKEND_URL}/api/download-video`, {
       method: 'POST',
