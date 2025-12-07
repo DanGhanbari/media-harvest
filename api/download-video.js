@@ -8,6 +8,7 @@ export default async function handler(req, res) {
   const DEFAULT_BACKEND_URL = 'https://media-harvest-production.up.railway.app';
   const BACKEND_URL = process.env.RAILWAY_BACKEND_URL || DEFAULT_BACKEND_URL;
   const usingDefault = !process.env.RAILWAY_BACKEND_URL;
+  const TIMEOUT_MS = 12000; // avoid Vercel 502 by failing fast
   
   try {
     const { url, quality, startTime, endTime } = req.body || {};
@@ -23,15 +24,21 @@ export default async function handler(req, res) {
       userAgent: req.headers['user-agent'] || 'unknown',
       backendSource: usingDefault ? 'default' : 'env'
     });
-    // Forward the request to the Railway backend
+    // Forward the request to the Railway backend with timeout
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
     const response = await fetch(`${BACKEND_URL}/api/download-video`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': req.headers['user-agent'] || 'Vercel-Proxy/1.0',
       },
-      body: JSON.stringify(req.body)
+      body: JSON.stringify(req.body),
+      signal: controller.signal
     });
+
+    clearTimeout(timer);
 
     // Handle different response types
     if (response.headers.get('content-type')?.includes('application/json')) {
@@ -54,9 +61,13 @@ export default async function handler(req, res) {
     }
   } catch (error) {
     console.error('Proxy error:', error);
-    return res.status(500).json({ 
-      error: 'Proxy request failed',
-      details: error.message 
+    // Fail fast with structured JSON to avoid platform-level 502s
+    const isTimeout = error && error.name === 'AbortError';
+    return res.status(isTimeout ? 504 : 500).json({ 
+      error: isTimeout ? 'Download request timed out' : 'Proxy request failed',
+      details: error.message,
+      backendSource: usingDefault ? 'default' : 'env',
+      retry_hint: 'Retry after a few seconds; ensure Railway service is awake and responsive.'
     });
   }
 }

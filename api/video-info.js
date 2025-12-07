@@ -8,17 +8,24 @@ export default async function handler(req, res) {
   const DEFAULT_BACKEND_URL = 'https://media-harvest-production.up.railway.app';
   const BACKEND_URL = process.env.RAILWAY_BACKEND_URL || DEFAULT_BACKEND_URL;
   const usingDefault = !process.env.RAILWAY_BACKEND_URL;
+  const TIMEOUT_MS = 7000; // keep video info snappy
   
   try {
-    // Forward the request to the Railway backend
+    // Forward the request to the Railway backend with timeout
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
     const response = await fetch(`${BACKEND_URL}/api/video-info`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': req.headers['user-agent'] || 'Vercel-Proxy/1.0',
       },
-      body: JSON.stringify(req.body)
+      body: JSON.stringify(req.body),
+      signal: controller.signal
     });
+
+    clearTimeout(timer);
 
     // If backend returns non-OK, attempt oEmbed fallback for YouTube
     if (!response.ok) {
@@ -69,7 +76,9 @@ export default async function handler(req, res) {
             uploader: oembedData.author_name,
             thumbnail: oembedData.thumbnail_url,
             duration: 0,
-            backendSource: usingDefault ? 'default' : 'env'
+            backendSource: usingDefault ? 'default' : 'env',
+            fallback: 'oembed',
+            timeout: error && error.name === 'AbortError' ? true : false
           });
         }
       }
@@ -79,7 +88,8 @@ export default async function handler(req, res) {
     return res.status(500).json({
       error: 'Proxy request failed',
       details: error.message,
-      backendSource: usingDefault ? 'default' : 'env'
+      backendSource: usingDefault ? 'default' : 'env',
+      timeout: error && error.name === 'AbortError' ? true : false
     });
   }
 }
