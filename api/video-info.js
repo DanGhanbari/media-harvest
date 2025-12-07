@@ -20,8 +20,40 @@ export default async function handler(req, res) {
       body: JSON.stringify(req.body)
     });
 
+    // If backend returns non-OK, attempt oEmbed fallback for YouTube
+    if (!response.ok) {
+      try {
+        const url = req.body?.url;
+        if (url && (url.includes('youtube.com') || url.includes('youtu.be'))) {
+          const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+          const oembedRes = await fetch(oembedUrl, { method: 'GET' });
+          if (oembedRes.ok) {
+            const oembedData = await oembedRes.json();
+            return res.status(200).json({
+              title: oembedData.title,
+              uploader: oembedData.author_name,
+              thumbnail: oembedData.thumbnail_url,
+              duration: 0,
+              backendSource: usingDefault ? 'default' : 'env',
+              fallback: 'oembed'
+            });
+          }
+        }
+      } catch (fallbackErr) {
+        console.error('Video info fallback (non-OK) error:', fallbackErr);
+      }
+      // If no fallback worked, return original backend error payload
+      const errorPayload = await response.text();
+      try {
+        const json = JSON.parse(errorPayload);
+        return res.status(response.status).json({ ...json, backendSource: usingDefault ? 'default' : 'env' });
+      } catch {
+        return res.status(response.status).send(errorPayload);
+      }
+    }
+
     const data = await response.json();
-    return res.status(response.status).json(data);
+    return res.status(response.status).json({ ...data, backendSource: usingDefault ? 'default' : 'env' });
   } catch (error) {
     console.error('Proxy error:', error);
     // As a fallback, try oEmbed for YouTube links to avoid hard failures
