@@ -102,25 +102,43 @@ export default async function handler(req, res) {
       console.log('Download retry succeeded');
     }
 
-    // Handle different response types
-    if (response.headers.get('content-type')?.includes('application/json')) {
-      // JSON response (likely an error)
-      const data = await response.json();
-      return res.status(response.status).json(data);
-    } else {
-      // Binary response (file download)
-      const contentType = response.headers.get('content-type') || 'application/octet-stream';
-      const contentDisposition = response.headers.get('content-disposition');
-      
-      res.setHeader('Content-Type', contentType);
-      if (contentDisposition) {
-        res.setHeader('Content-Disposition', contentDisposition);
+    // Handle error responses first to avoid streaming text errors as binary
+    if (!response.ok) {
+      const ct = response.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        const data = await response.json();
+        return res.status(response.status).json(data);
       }
-      
-      // Stream the response
-      const buffer = await response.arrayBuffer();
-      return res.status(response.status).send(Buffer.from(buffer));
+      // Try to read text payload for diagnostics
+      let backendText = '';
+      try {
+        backendText = await response.text();
+      } catch {}
+      return res.status(response.status).json({
+        error: 'Backend returned non-OK non-JSON',
+        backendText,
+        status: response.status,
+        backendSource: usingDefault ? 'default' : 'env'
+      });
     }
+
+    // Successful response: determine JSON vs binary
+    if (response.headers.get('content-type')?.includes('application/json')) {
+      const data = await response.json();
+      return res.status(200).json(data);
+    }
+    // Binary response (file download)
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+    const contentDisposition = response.headers.get('content-disposition');
+    
+    res.setHeader('Content-Type', contentType);
+    if (contentDisposition) {
+      res.setHeader('Content-Disposition', contentDisposition);
+    }
+    
+    // Stream the response
+    const buffer = await response.arrayBuffer();
+    return res.status(200).send(Buffer.from(buffer));
   } catch (error) {
     console.error('Proxy error:', error);
     // Fail fast with structured JSON to avoid platform-level 502s
