@@ -100,8 +100,61 @@ class YouTubeBypassManager {
           }
           return lines.join('\n') + '\n';
         } catch {
-          // Not JSON; write raw with header
-          return `${header}\n${trimmed}`;
+          // Not JSON; process as raw text
+          // 1. Check if it already has the header
+          const hasHeader = trimmed.startsWith('# Netscape HTTP Cookie File');
+
+          // 2. Split into lines and process each
+          const rawLines = trimmed.split(/\r?\n/);
+          const processedLines = [];
+
+          if (!hasHeader) {
+            processedLines.push(header.trim());
+          }
+
+          for (const line of rawLines) {
+            const cleanLine = line.trim();
+            if (!cleanLine) continue;
+
+            // Keep valid comments and headers
+            if (cleanLine.startsWith('#')) {
+              processedLines.push(cleanLine);
+              continue;
+            }
+
+            // check if it's already tab separated (at least 7 fields)
+            if (cleanLine.split('\t').length >= 7) {
+              processedLines.push(cleanLine);
+              continue;
+            }
+
+            // Attempt to fix space-separated cookies (common copy-paste issue)
+            try {
+              // Regex matches: domain flag path secure expiration name value
+              const spaceRegex = /^(\S+)\s+(TRUE|FALSE)\s+(\S+)\s+(TRUE|FALSE)\s+(\d+)\s+(\S+)\s+(.+)$/;
+              const spaceParts = cleanLine.match(spaceRegex);
+
+              if (spaceParts) {
+                // Reconstruct with tabs
+                const fixedLine = [
+                  spaceParts[1], // domain
+                  spaceParts[2], // flag
+                  spaceParts[3], // path
+                  spaceParts[4], // secure
+                  spaceParts[5], // expiration
+                  spaceParts[6], // name
+                  spaceParts[7]  // value
+                ].join('\t');
+                processedLines.push(fixedLine);
+              } else {
+                console.warn('⚠️ Skipping potentially invalid cookie line:', cleanLine.substring(0, 50));
+              }
+            } catch (err) {
+              // Ignore regex errors
+            }
+          }
+
+          return processedLines.join('\n') + '\n';
         }
       };
 
