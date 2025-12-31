@@ -1759,7 +1759,7 @@ app.post('/api/download-video', async (req, res) => {
       '--progress', // Enable progress output
       '--newline', // Each progress line on new line
       '--user-agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', // Spoof user agent
-      '--extractor-args', 'youtube:player_client=tv_embedded,ios,mweb,android,web;po_token_provider=bgutil;include_live_dash=false', // Use multiple clients with PO token support
+      '--extractor-args', 'youtube:player_client=web,web_creator', // Use standard web client to avoid PO Token blocks
       '--no-check-formats', // Don't verify format availability
       '--no-check-certificate', // Bypass SSL certificate checks
       '--prefer-free-formats' // Prefer free formats when available
@@ -3255,10 +3255,10 @@ app.post('/api/video-info', async (req, res) => {
         const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
         const formatUnavailable = stderr.includes('Requested format is not available') || stderr.includes('Only images are available');
         if (isYouTube && formatUnavailable) {
-          console.log('🧪 Retrying with Android client due to unavailable formats/storyboards');
-          // Rebuild args: remove prior extractor-args and add android client + ignore-no-formats-error
-          const baseArgs = ytDlpArgs.filter(a => a !== '--extractor-args' && !String(a).includes('youtube:player_client=tv'));
-          baseArgs.push('--extractor-args', 'youtube:player_client=android');
+          console.log('🧪 Retrying with robust Web Creator client due to unavailable formats');
+          // Rebuild args: try web_creator which sometimes sees more formats
+          const baseArgs = ytDlpArgs.filter(a => a !== '--extractor-args' && !String(a).includes('youtube:player_client'));
+          baseArgs.push('--extractor-args', 'youtube:player_client=web_creator,web');
           baseArgs.push('--ignore-no-formats-error');
 
           // Ensure URL is appended
