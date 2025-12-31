@@ -2018,781 +2018,835 @@ app.post('/api/download-video', async (req, res) => {
       return spawn(command, commandArgs);
     };
 
-    ytDlp = await tryDownload();
+    // Wrapper for retry capabilities
+    const executeDownloadSession = async (isRetry = false) => {
+      ytDlp = await tryDownload();
 
-    console.log('🎬 SERVER DEBUG: yt-dlp process started for sessionId:', sessionId);
-    console.log('🎬 SERVER DEBUG: Process PID:', ytDlp.pid);
-
-    // Add timeout mechanism to prevent hanging downloads
-    const downloadTimeout = setTimeout(() => {
-      console.error('⏰ Download timeout reached (5 minutes), killing yt-dlp process');
-      if (ytDlp && !ytDlp.killed) {
-        ytDlp.kill('SIGTERM');
-        setTimeout(() => {
-          if (ytDlp && !ytDlp.killed) {
-            console.error('⏰ Force killing yt-dlp process with SIGKILL');
-            ytDlp.kill('SIGKILL');
-          }
-        }, 5000); // Give 5 seconds for graceful termination
+      // Update active download reference with new process
+      if (activeDownloads.has(url)) {
+        const ad = activeDownloads.get(url);
+        if (ad) ad.ytDlp = ytDlp;
       }
-      cleanup();
-      if (!res.headersSent) {
-        res.status(408).json({
-          error: 'Download timeout',
-          details: 'The download took too long and was cancelled. This may be due to network issues or the video being very large.'
-        });
-      }
-    }, 5 * 60 * 1000); // 5 minutes timeout
 
-    // Register this download in the active downloads map
-    activeDownloads.set(url, { ytDlp, tempDir, cleanup, sessionId, timeout: downloadTimeout });
+      console.log('🎬 SERVER DEBUG: yt-dlp process started for sessionId:', sessionId);
+      console.log('🎬 SERVER DEBUG: Process PID:', ytDlp.pid);
 
-    let stderr = '';
-    let stdout = '';
-    let progressSent = false;
-
-    // Unified progress tracking for multi-stage downloads
-    let downloadStage = 'initializing'; // 'initializing', 'video', 'audio', 'merging', 'complete'
-    let stageProgress = {}; // Track progress for each stage
-    let lastUnifiedProgress = 0;
-
-    // Stage weight mapping for unified progress calculation
-    // Each stage represents the range it covers in the total progress
-    const stageRanges = {
-      initializing: { start: 0, end: 5 },      // 0-5%
-      video: { start: 5, end: 55 },            // 5-55%
-      audio: { start: 55, end: 80 },           // 55-80%
-      merging: { start: 80, end: 95 },         // 80-95%
-      postprocessing: { start: 95, end: 100 }  // 95-100%
-    };
-
-    const calculateUnifiedProgress = () => {
-      // Calculate progress based on all completed stages plus current stage
-      let totalProgress = 0;
-
-      // Add progress from all completed stages
-      for (const [stageName, progress] of Object.entries(stageProgress)) {
-        const range = stageRanges[stageName];
-        if (!range) continue;
-
-        if (stageName === downloadStage) {
-          // Current stage: interpolate within its range
-          const rangeSize = range.end - range.start;
-          totalProgress = range.start + (progress / 100) * rangeSize;
-        } else if (progress >= 100) {
-          // Completed stage: use its full range
-          totalProgress = Math.max(totalProgress, range.end);
+      // Add timeout mechanism to prevent hanging downloads
+      const downloadTimeout = setTimeout(() => {
+        console.error('⏰ Download timeout reached (5 minutes), killing yt-dlp process');
+        if (ytDlp && !ytDlp.killed) {
+          ytDlp.kill('SIGTERM');
+          setTimeout(() => {
+            if (ytDlp && !ytDlp.killed) {
+              console.error('⏰ Force killing yt-dlp process with SIGKILL');
+              ytDlp.kill('SIGKILL');
+            }
+          }, 5000); // Give 5 seconds for graceful termination
         }
-      }
-
-      // Round to whole number (no decimal places)
-      totalProgress = Math.round(totalProgress);
-
-      // Ensure progress stays within bounds and never goes backwards
-      totalProgress = Math.min(100, Math.max(lastUnifiedProgress || 0, totalProgress));
-      lastUnifiedProgress = totalProgress;
-
-      return totalProgress;
-    };
-
-    const sendUnifiedProgress = (stage, rawProgress, details = {}) => {
-      // Ensure rawProgress is a valid number and within bounds
-      const validProgress = Math.max(0, Math.min(100, parseFloat(rawProgress) || 0));
-
-      // When transitioning to a new stage, preserve completed stages
-      if (stage !== downloadStage) {
-        // Mark the previous stage as completed if it exists
-        if (downloadStage && stageProgress[downloadStage] !== undefined) {
-          stageProgress[downloadStage] = 100;
-        }
-        downloadStage = stage; // Update current stage
-        // Initialize new stage progress if not exists
-        if (stageProgress[stage] === undefined) {
-          stageProgress[stage] = 0;
-        }
-      }
-
-      // Update only the current stage progress
-      const currentStageProgress = stageProgress[stage] || 0;
-      stageProgress[stage] = validProgress;
-
-      const unifiedProgress = calculateUnifiedProgress();
-
-      console.log(`📊 DEBUG: Stage '${stage}' progress: ${validProgress}% (was: ${currentStageProgress}%) -> Unified: ${unifiedProgress}%`);
-      console.log(`📊 DEBUG: Stage progress state:`, JSON.stringify(stageProgress));
-
-      if (sessionId) {
-        const operationKey = `download_${url}`;
-        sendProgressUpdate(sessionId, operationKey, unifiedProgress, {
-          ...details,
-          stage: stage,
-          stageProgress: validProgress,
-          allStages: stageProgress
-        });
-      }
-    };
-
-    // Disable progress simulation - rely only on real yt-dlp progress
-    // The simulation was interfering with real progress updates
-    console.log('📊 DEBUG: Progress simulation disabled - using real yt-dlp progress only');
-
-    // Send initial progress to show download has started
-    if (sessionId) {
-      sendUnifiedProgress('initializing', 0, { message: 'Starting download...' });
-    }
-
-    // Progress simulation removed - no cleanup needed
-
-    // Periodically check if client is still connected
-    const connectionCheck = setInterval(() => {
-      if (res.destroyed || !res.writable) {
-        clearInterval(connectionCheck);
         cleanup();
-      }
-    }, 1000); // Check every second
+        if (!res.headersSent) {
+          res.status(408).json({
+            error: 'Download timeout',
+            details: 'The download took too long and was cancelled. This may be due to network issues or the video being very large.'
+          });
+        }
+      }, 5 * 60 * 1000); // 5 minutes timeout
 
-    // Clear interval when process completes
-    const clearConnectionCheck = () => {
-      clearInterval(connectionCheck);
-    };
+      // Register this download in the active downloads map
+      activeDownloads.set(url, { ytDlp, tempDir, cleanup, sessionId, timeout: downloadTimeout });
 
-    ytDlp.stdout.on('data', (data) => {
-      const output = data.toString();
-      stdout += output;
-      console.log('🔍 DEBUG: yt-dlp stdout line:', JSON.stringify(output));
+      let stderr = '';
+      let stdout = '';
+      let progressSent = false;
 
-      // Parse progress from stdout as well
-      if (sessionId) {
-        const lines = output.split('\n');
-        for (const line of lines) {
-          if (line.trim()) {
-            console.log('🔍 DEBUG: yt-dlp stdout line:', JSON.stringify(line));
-          }
+      // Unified progress tracking for multi-stage downloads
+      let downloadStage = 'initializing'; // 'initializing', 'video', 'audio', 'merging', 'complete'
+      let stageProgress = {}; // Track progress for each stage
+      let lastUnifiedProgress = 0;
 
-          // Look for download progress in stdout with improved patterns
-          const progressMatch = line.match(/\[download\]\s*(\d+(?:\.\d+)?)%/) ||
-            line.match(/\[download\].*?(\d+(?:\.\d+)?)%/) ||
-            line.match(/(\d+(?:\.\d+)?)%\s*of\s*~?[\d.]+\w+/) ||
-            line.match(/\s+(\d+(?:\.\d+)?)%\s+of\s+/) ||
-            line.match(/\s+(\d+(?:\.\d+)?)%\s+at\s+/) ||
-            line.match(/^\s*(\d+(?:\.\d+)?)%/);
-          if (progressMatch) {
-            const progress = parseFloat(progressMatch[1]);
-            console.log('📊 DEBUG: Progress parsed from stdout:', progress + '% from line:', JSON.stringify(line));
-            progressSent = true; // Mark that real progress was detected
+      // Stage weight mapping for unified progress calculation
+      // Each stage represents the range it covers in the total progress
+      const stageRanges = {
+        initializing: { start: 0, end: 5 },      // 0-5%
+        video: { start: 5, end: 55 },            // 5-55%
+        audio: { start: 55, end: 80 },           // 55-80%
+        merging: { start: 80, end: 95 },         // 80-95%
+        postprocessing: { start: 95, end: 100 }  // 95-100%
+      };
 
-            // Detect download stage from the line content with improved logic
-            let stage = downloadStage; // Use current stage as default
+      const calculateUnifiedProgress = () => {
+        // Calculate progress based on all completed stages plus current stage
+        let totalProgress = 0;
 
-            // Start with video stage when we first see download progress
-            if (downloadStage === 'initializing' && progress > 0) {
-              stage = 'video';
-              downloadStage = 'video';
-              console.log('📊 DEBUG: Transitioning from initializing to video stage');
-            }
-            // Audio detection - look for audio format indicators
-            else if ((line.includes('format 140') || line.includes('m4a') || line.includes('audio only')) &&
-              line.includes('[download]') && progress > 0) {
-              if (downloadStage !== 'audio') {
-                stage = 'audio';
-                downloadStage = 'audio';
-                console.log('📊 DEBUG: Transitioning to audio stage');
-              }
-            }
-            // Video detection - look for video format indicators  
-            else if ((line.includes('format 137') || line.includes('format 136') ||
-              line.includes('format 135') || line.includes('mp4') || line.includes('webm') ||
-              line.includes('video only')) &&
-              line.includes('[download]') && progress > 0) {
-              if (downloadStage !== 'video' && downloadStage === 'initializing') {
-                stage = 'video';
-                downloadStage = 'video';
-                console.log('📊 DEBUG: Transitioning to video stage');
-              }
-            }
-            // Merging stage detection
-            else if (line.includes('Merging formats into') ||
-              line.includes('[Merger]') ||
-              line.includes('Merging') ||
-              (line.includes('ffmpeg') && (line.includes('Merging') || line.includes('-c copy')))) {
-              if (downloadStage !== 'merging') {
-                stage = 'merging';
-                downloadStage = 'merging';
-                console.log('📊 DEBUG: Transitioning to merging stage');
-                // Start merging with some initial progress
-                if (progress === 100) {
-                  progress = 10;
-                }
-              }
-            }
+        // Add progress from all completed stages
+        for (const [stageName, progress] of Object.entries(stageProgress)) {
+          const range = stageRanges[stageName];
+          if (!range) continue;
 
-            // Extract additional details
-            const sizeMatch = line.match(/of\s*~?([\d.]+\w+)/) || line.match(/([\d.]+\w+)\s*total/);
-            const speedMatch = line.match(/at\s+([\d.]+\w+\/s)/) || line.match(/([\d.]+\w+\/s)/);
-            const etaMatch = line.match(/ETA\s+(\d+:\d+)/) || line.match(/eta\s+(\d+:\d+)/i);
-
-            sendUnifiedProgress(stage, progress, {
-              size: sizeMatch ? sizeMatch[1] : null,
-              speed: speedMatch ? speedMatch[1] : null,
-              eta: etaMatch ? etaMatch[1] : null
-            });
+          if (stageName === downloadStage) {
+            // Current stage: interpolate within its range
+            const rangeSize = range.end - range.start;
+            totalProgress = range.start + (progress / 100) * rangeSize;
+          } else if (progress >= 100) {
+            // Completed stage: use its full range
+            totalProgress = Math.max(totalProgress, range.end);
           }
         }
-      }
-    });
 
-    ytDlp.stderr.on('data', (data) => {
-      const output = data.toString();
-      stderr += output;
-      console.error(output);
+        // Round to whole number (no decimal places)
+        totalProgress = Math.round(totalProgress);
 
-      // Parse progress from yt-dlp output
-      if (sessionId) {
-        const lines = output.split('\n');
-        for (const line of lines) {
-          // Debug: Log ALL stderr lines to see what yt-dlp is actually outputting
-          if (line.trim()) {
-            console.log('🔍 DEBUG: yt-dlp stderr line:', JSON.stringify(line));
+        // Ensure progress stays within bounds and never goes backwards
+        totalProgress = Math.min(100, Math.max(lastUnifiedProgress || 0, totalProgress));
+        lastUnifiedProgress = totalProgress;
+
+        return totalProgress;
+      };
+
+      const sendUnifiedProgress = (stage, rawProgress, details = {}) => {
+        // Ensure rawProgress is a valid number and within bounds
+        const validProgress = Math.max(0, Math.min(100, parseFloat(rawProgress) || 0));
+
+        // When transitioning to a new stage, preserve completed stages
+        if (stage !== downloadStage) {
+          // Mark the previous stage as completed if it exists
+          if (downloadStage && stageProgress[downloadStage] !== undefined) {
+            stageProgress[downloadStage] = 100;
           }
-
-          // Debug: Log all lines that contain 'download' to see the actual format
-          if (line.includes('[download]')) {
-            console.log('🔍 DEBUG: yt-dlp download line:', JSON.stringify(line));
-          }
-
-          // Look for download progress with multiple possible formats:
-          // [download]  45.2% of 123.45MiB at 1.23MiB/s ETA 00:30
-          // [download] 45.2% of ~123.45MiB at 1.23MiB/s ETA 00:30
-          // [download]   45.2% of 123.45MiB at  1.23MiB/s ETA 00:30
-          // Also look for any percentage pattern in case format changed
-          const progressMatch = line.match(/\[download\]\s*(\d+(?:\.\d+)?)%/) ||
-            line.match(/\[download\].*?(\d+(?:\.\d+)?)%/) ||
-            line.match(/(\d+(?:\.\d+)?)%\s*of\s*~?[\d.]+\w+/) ||
-            line.match(/\s+(\d+(?:\.\d+)?)%\s+of\s+/) ||
-            line.match(/\s+(\d+(?:\.\d+)?)%\s+at\s+/) ||
-            line.match(/^\s*(\d+(?:\.\d+)?)%/);
-          if (progressMatch) {
-            const progress = parseFloat(progressMatch[1]);
-            console.log('📊 DEBUG: Progress parsed from stderr:', progress + '% from line:', JSON.stringify(line));
-            progressSent = true; // Mark that real progress was detected
-
-            // Detect download stage from the line content with improved logic
-            let stage = downloadStage; // Use current stage as default
-
-            // Start with video stage when we first see download progress
-            if (downloadStage === 'initializing' && progress > 0) {
-              stage = 'video';
-              downloadStage = 'video';
-              console.log('📊 DEBUG: Transitioning from initializing to video stage (stderr)');
-            }
-            // Audio detection - look for audio format indicators
-            else if ((line.includes('format 140') || line.includes('m4a') || line.includes('audio only')) &&
-              line.includes('[download]') && progress > 0) {
-              if (downloadStage !== 'audio') {
-                stage = 'audio';
-                downloadStage = 'audio';
-                console.log('📊 DEBUG: Transitioning to audio stage (stderr)');
-              }
-            }
-            // Video detection - look for video format indicators  
-            else if ((line.includes('format 137') || line.includes('format 136') ||
-              line.includes('format 135') || line.includes('mp4') || line.includes('webm') ||
-              line.includes('video only')) &&
-              line.includes('[download]') && progress > 0) {
-              if (downloadStage !== 'video' && downloadStage === 'initializing') {
-                stage = 'video';
-                downloadStage = 'video';
-                console.log('📊 DEBUG: Transitioning to video stage (stderr)');
-              }
-            }
-            // Merging stage detection
-            else if (line.includes('Merging formats into') ||
-              line.includes('[Merger]') ||
-              line.includes('Merging') ||
-              (line.includes('ffmpeg') && (line.includes('Merging') || line.includes('-c copy')))) {
-              if (downloadStage !== 'merging') {
-                stage = 'merging';
-                downloadStage = 'merging';
-                console.log('📊 DEBUG: Transitioning to merging stage (stderr)');
-                // Start merging with some initial progress
-                if (progress === 100) {
-                  progress = 10;
-                }
-              }
-            }
-
-            // Extract additional details with more flexible patterns
-            const sizeMatch = line.match(/of\s*~?([\d.]+\w+)/) || line.match(/([\d.]+\w+)\s*total/);
-            const speedMatch = line.match(/at\s+([\d.]+\w+\/s)/) || line.match(/([\d.]+\w+\/s)/);
-            const etaMatch = line.match(/ETA\s+(\d+:\d+)/) || line.match(/eta\s+(\d+:\d+)/i);
-
-            console.log('📡 DEBUG: Sending unified progress update via WebSocket');
-            sendUnifiedProgress(stage, progress, {
-              size: sizeMatch ? sizeMatch[1] : null,
-              speed: speedMatch ? speedMatch[1] : null,
-              eta: etaMatch ? etaMatch[1] : null
-            });
+          downloadStage = stage; // Update current stage
+          // Initialize new stage progress if not exists
+          if (stageProgress[stage] === undefined) {
+            stageProgress[stage] = 0;
           }
         }
-      }
-    });
 
-    ytDlp.on('close', async (code) => {
-      clearConnectionCheck();
-      // Clear download timeout
-      const downloadData = activeDownloads.get(url);
-      if (downloadData && downloadData.timeout) {
-        clearTimeout(downloadData.timeout);
+        // Update only the current stage progress
+        const currentStageProgress = stageProgress[stage] || 0;
+        stageProgress[stage] = validProgress;
+
+        const unifiedProgress = calculateUnifiedProgress();
+
+        console.log(`📊 DEBUG: Stage '${stage}' progress: ${validProgress}% (was: ${currentStageProgress}%) -> Unified: ${unifiedProgress}%`);
+        console.log(`📊 DEBUG: Stage progress state:`, JSON.stringify(stageProgress));
+
+        if (sessionId) {
+          const operationKey = `download_${url}`;
+          sendProgressUpdate(sessionId, operationKey, unifiedProgress, {
+            ...details,
+            stage: stage,
+            stageProgress: validProgress,
+            allStages: stageProgress
+          });
+        }
+      };
+
+      // Disable progress simulation - rely only on real yt-dlp progress
+      // The simulation was interfering with real progress updates
+      console.log('📊 DEBUG: Progress simulation disabled - using real yt-dlp progress only');
+
+      // Send initial progress to show download has started
+      if (sessionId) {
+        sendUnifiedProgress('initializing', 0, { message: 'Starting download...' });
       }
+
       // Progress simulation removed - no cleanup needed
 
-      // Handle Instagram/Facebook authentication failures with helpful error messages
-      if (code !== 0 && (platform === 'instagram' || platform === 'facebook')) {
-        const errorOutput = stderr.toLowerCase();
-        if (errorOutput.includes('login required') || errorOutput.includes('authentication') ||
-          errorOutput.includes('cookies') || errorOutput.includes('rate-limit')) {
-          fs.rmSync(tempDir, { recursive: true, force: true });
+      // Periodically check if client is still connected
+      const connectionCheck = setInterval(() => {
+        if (res.destroyed || !res.writable) {
+          clearInterval(connectionCheck);
+          cleanup();
+        }
+      }, 1000); // Check every second
 
-          const isProduction = isProductionEnvironment();
-          const errorMessage = isProduction
-            ? `${platform.charAt(0).toUpperCase() + platform.slice(1)} authentication not available in production`
-            : `${platform.charAt(0).toUpperCase() + platform.slice(1)} requires authentication`;
+      // Clear interval when process completes
+      const clearConnectionCheck = () => {
+        clearInterval(connectionCheck);
+      };
 
-          const details = isProduction
-            ? `Instagram downloads require browser cookies which are not available on the production server. This is a limitation of the hosting environment. Try:
+      ytDlp.stdout.on('data', (data) => {
+        const output = data.toString();
+        stdout += output;
+        console.log('🔍 DEBUG: yt-dlp stdout line:', JSON.stringify(output));
+
+        // Parse progress from stdout as well
+        if (sessionId) {
+          const lines = output.split('\n');
+          for (const line of lines) {
+            if (line.trim()) {
+              console.log('🔍 DEBUG: yt-dlp stdout line:', JSON.stringify(line));
+            }
+
+            // Look for download progress in stdout with improved patterns
+            const progressMatch = line.match(/\[download\]\s*(\d+(?:\.\d+)?)%/) ||
+              line.match(/\[download\].*?(\d+(?:\.\d+)?)%/) ||
+              line.match(/(\d+(?:\.\d+)?)%\s*of\s*~?[\d.]+\w+/) ||
+              line.match(/\s+(\d+(?:\.\d+)?)%\s+of\s+/) ||
+              line.match(/\s+(\d+(?:\.\d+)?)%\s+at\s+/) ||
+              line.match(/^\s*(\d+(?:\.\d+)?)%/);
+            if (progressMatch) {
+              const progress = parseFloat(progressMatch[1]);
+              console.log('📊 DEBUG: Progress parsed from stdout:', progress + '% from line:', JSON.stringify(line));
+              progressSent = true; // Mark that real progress was detected
+
+              // Detect download stage from the line content with improved logic
+              let stage = downloadStage; // Use current stage as default
+
+              // Start with video stage when we first see download progress
+              if (downloadStage === 'initializing' && progress > 0) {
+                stage = 'video';
+                downloadStage = 'video';
+                console.log('📊 DEBUG: Transitioning from initializing to video stage');
+              }
+              // Audio detection - look for audio format indicators
+              else if ((line.includes('format 140') || line.includes('m4a') || line.includes('audio only')) &&
+                line.includes('[download]') && progress > 0) {
+                if (downloadStage !== 'audio') {
+                  stage = 'audio';
+                  downloadStage = 'audio';
+                  console.log('📊 DEBUG: Transitioning to audio stage');
+                }
+              }
+              // Video detection - look for video format indicators  
+              else if ((line.includes('format 137') || line.includes('format 136') ||
+                line.includes('format 135') || line.includes('mp4') || line.includes('webm') ||
+                line.includes('video only')) &&
+                line.includes('[download]') && progress > 0) {
+                if (downloadStage !== 'video' && downloadStage === 'initializing') {
+                  stage = 'video';
+                  downloadStage = 'video';
+                  console.log('📊 DEBUG: Transitioning to video stage');
+                }
+              }
+              // Merging stage detection
+              else if (line.includes('Merging formats into') ||
+                line.includes('[Merger]') ||
+                line.includes('Merging') ||
+                (line.includes('ffmpeg') && (line.includes('Merging') || line.includes('-c copy')))) {
+                if (downloadStage !== 'merging') {
+                  stage = 'merging';
+                  downloadStage = 'merging';
+                  console.log('📊 DEBUG: Transitioning to merging stage');
+                  // Start merging with some initial progress
+                  if (progress === 100) {
+                    progress = 10;
+                  }
+                }
+              }
+
+              // Extract additional details
+              const sizeMatch = line.match(/of\s*~?([\d.]+\w+)/) || line.match(/([\d.]+\w+)\s*total/);
+              const speedMatch = line.match(/at\s+([\d.]+\w+\/s)/) || line.match(/([\d.]+\w+\/s)/);
+              const etaMatch = line.match(/ETA\s+(\d+:\d+)/) || line.match(/eta\s+(\d+:\d+)/i);
+
+              sendUnifiedProgress(stage, progress, {
+                size: sizeMatch ? sizeMatch[1] : null,
+                speed: speedMatch ? speedMatch[1] : null,
+                eta: etaMatch ? etaMatch[1] : null
+              });
+            }
+          }
+        }
+      });
+
+      ytDlp.stderr.on('data', (data) => {
+        const output = data.toString();
+        stderr += output;
+        console.error(output);
+
+        // Parse progress from yt-dlp output
+        if (sessionId) {
+          const lines = output.split('\n');
+          for (const line of lines) {
+            // Debug: Log ALL stderr lines to see what yt-dlp is actually outputting
+            if (line.trim()) {
+              console.log('🔍 DEBUG: yt-dlp stderr line:', JSON.stringify(line));
+            }
+
+            // Debug: Log all lines that contain 'download' to see the actual format
+            if (line.includes('[download]')) {
+              console.log('🔍 DEBUG: yt-dlp download line:', JSON.stringify(line));
+            }
+
+            // Look for download progress with multiple possible formats:
+            // [download]  45.2% of 123.45MiB at 1.23MiB/s ETA 00:30
+            // [download] 45.2% of ~123.45MiB at 1.23MiB/s ETA 00:30
+            // [download]   45.2% of 123.45MiB at  1.23MiB/s ETA 00:30
+            // Also look for any percentage pattern in case format changed
+            const progressMatch = line.match(/\[download\]\s*(\d+(?:\.\d+)?)%/) ||
+              line.match(/\[download\].*?(\d+(?:\.\d+)?)%/) ||
+              line.match(/(\d+(?:\.\d+)?)%\s*of\s*~?[\d.]+\w+/) ||
+              line.match(/\s+(\d+(?:\.\d+)?)%\s+of\s+/) ||
+              line.match(/\s+(\d+(?:\.\d+)?)%\s+at\s+/) ||
+              line.match(/^\s*(\d+(?:\.\d+)?)%/);
+            if (progressMatch) {
+              const progress = parseFloat(progressMatch[1]);
+              console.log('📊 DEBUG: Progress parsed from stderr:', progress + '% from line:', JSON.stringify(line));
+              progressSent = true; // Mark that real progress was detected
+
+              // Detect download stage from the line content with improved logic
+              let stage = downloadStage; // Use current stage as default
+
+              // Start with video stage when we first see download progress
+              if (downloadStage === 'initializing' && progress > 0) {
+                stage = 'video';
+                downloadStage = 'video';
+                console.log('📊 DEBUG: Transitioning from initializing to video stage (stderr)');
+              }
+              // Audio detection - look for audio format indicators
+              else if ((line.includes('format 140') || line.includes('m4a') || line.includes('audio only')) &&
+                line.includes('[download]') && progress > 0) {
+                if (downloadStage !== 'audio') {
+                  stage = 'audio';
+                  downloadStage = 'audio';
+                  console.log('📊 DEBUG: Transitioning to audio stage (stderr)');
+                }
+              }
+              // Video detection - look for video format indicators  
+              else if ((line.includes('format 137') || line.includes('format 136') ||
+                line.includes('format 135') || line.includes('mp4') || line.includes('webm') ||
+                line.includes('video only')) &&
+                line.includes('[download]') && progress > 0) {
+                if (downloadStage !== 'video' && downloadStage === 'initializing') {
+                  stage = 'video';
+                  downloadStage = 'video';
+                  console.log('📊 DEBUG: Transitioning to video stage (stderr)');
+                }
+              }
+              // Merging stage detection
+              else if (line.includes('Merging formats into') ||
+                line.includes('[Merger]') ||
+                line.includes('Merging') ||
+                (line.includes('ffmpeg') && (line.includes('Merging') || line.includes('-c copy')))) {
+                if (downloadStage !== 'merging') {
+                  stage = 'merging';
+                  downloadStage = 'merging';
+                  console.log('📊 DEBUG: Transitioning to merging stage (stderr)');
+                  // Start merging with some initial progress
+                  if (progress === 100) {
+                    progress = 10;
+                  }
+                }
+              }
+
+              // Extract additional details with more flexible patterns
+              const sizeMatch = line.match(/of\s*~?([\d.]+\w+)/) || line.match(/([\d.]+\w+)\s*total/);
+              const speedMatch = line.match(/at\s+([\d.]+\w+\/s)/) || line.match(/([\d.]+\w+\/s)/);
+              const etaMatch = line.match(/ETA\s+(\d+:\d+)/) || line.match(/eta\s+(\d+:\d+)/i);
+
+              console.log('📡 DEBUG: Sending unified progress update via WebSocket');
+              sendUnifiedProgress(stage, progress, {
+                size: sizeMatch ? sizeMatch[1] : null,
+                speed: speedMatch ? speedMatch[1] : null,
+                eta: etaMatch ? etaMatch[1] : null
+              });
+            }
+          }
+        }
+      });
+
+      ytDlp.on('close', async (code) => {
+        clearConnectionCheck();
+        // Clear download timeout
+        const downloadData = activeDownloads.get(url);
+        if (downloadData && downloadData.timeout) {
+          clearTimeout(downloadData.timeout);
+        }
+        // Progress simulation removed - no cleanup needed
+
+        // Handle Instagram/Facebook authentication failures with helpful error messages
+        if (code !== 0 && (platform === 'instagram' || platform === 'facebook')) {
+          const errorOutput = stderr.toLowerCase();
+          if (errorOutput.includes('login required') || errorOutput.includes('authentication') ||
+            errorOutput.includes('cookies') || errorOutput.includes('rate-limit')) {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+
+            const isProduction = isProductionEnvironment();
+            const errorMessage = isProduction
+              ? `${platform.charAt(0).toUpperCase() + platform.slice(1)} authentication not available in production`
+              : `${platform.charAt(0).toUpperCase() + platform.slice(1)} requires authentication`;
+
+            const details = isProduction
+              ? `Instagram downloads require browser cookies which are not available on the production server. This is a limitation of the hosting environment. Try:
 1. Using a public Instagram post URL (some may work without authentication)
 2. Running the application locally for Instagram downloads
 3. Using alternative platforms like YouTube, TikTok, or Twitter`
-            : `This ${platform} content requires login. The platform has restricted access to prevent automated downloads. Try:
+              : `This ${platform} content requires login. The platform has restricted access to prevent automated downloads. Try:
 1. Using a public post URL instead of private content
 2. Checking if the content is publicly accessible
 3. The content may be geo-restricted or require account access`;
 
-          return res.status(403).json({
-            error: errorMessage,
-            details: details,
-            platform: platform,
-            isProduction: isProduction,
-            suggestion: 'Try downloading from YouTube, TikTok, or Twitter instead, which work more reliably.'
-          });
-        }
-      }
-
-      if (code === 0) {
-        // Send gradual merging progress updates before completion
-        if (sessionId) {
-          console.log('✅ Download completed successfully - sending gradual merging progress');
-          console.log('📊 DEBUG: Current merging progress before gradual updates:', stageProgress.merging);
-          // Send intermediate merging progress to avoid sudden jumps
-          if (!stageProgress.merging || stageProgress.merging < 50) {
-            console.log('📊 DEBUG: Sending merging progress 50%');
-            sendUnifiedProgress('merging', 50, { stage: 'Processing downloaded files' });
-            await new Promise(resolve => setTimeout(resolve, 300)); // Small delay for smooth progress
+            return res.status(403).json({
+              error: errorMessage,
+              details: details,
+              platform: platform,
+              isProduction: isProduction,
+              suggestion: 'Try downloading from YouTube, TikTok, or Twitter instead, which work more reliably.'
+            });
           }
-          if (!stageProgress.merging || stageProgress.merging < 80) {
-            console.log('📊 DEBUG: Sending merging progress 80%');
-            sendUnifiedProgress('merging', 80, { stage: 'Finalizing merge' });
-            await new Promise(resolve => setTimeout(resolve, 300));
-          }
-          console.log('📊 DEBUG: Sending merging progress 100%');
-          sendUnifiedProgress('merging', 100, { stage: 'Merge completed' });
-          await new Promise(resolve => setTimeout(resolve, 200)); // Brief pause before post-processing
         }
 
-        // Find the downloaded files (handle carousel posts with multiple files)
-        let files = fs.readdirSync(tempDir).filter(file =>
-          // Filter out info.json files and thumbnails, keep media files
-          !/\.(info\.json|description|annotations\.xml)$/i.test(file) &&
-          !/thumbnail/i.test(file)
-        );
+        if (code === 0) {
+          // Send gradual merging progress updates before completion
+          if (sessionId) {
+            console.log('✅ Download completed successfully - sending gradual merging progress');
+            console.log('📊 DEBUG: Current merging progress before gradual updates:', stageProgress.merging);
+            // Send intermediate merging progress to avoid sudden jumps
+            if (!stageProgress.merging || stageProgress.merging < 50) {
+              console.log('📊 DEBUG: Sending merging progress 50%');
+              sendUnifiedProgress('merging', 50, { stage: 'Processing downloaded files' });
+              await new Promise(resolve => setTimeout(resolve, 300)); // Small delay for smooth progress
+            }
+            if (!stageProgress.merging || stageProgress.merging < 80) {
+              console.log('📊 DEBUG: Sending merging progress 80%');
+              sendUnifiedProgress('merging', 80, { stage: 'Finalizing merge' });
+              await new Promise(resolve => setTimeout(resolve, 300));
+            }
+            console.log('📊 DEBUG: Sending merging progress 100%');
+            sendUnifiedProgress('merging', 100, { stage: 'Merge completed' });
+            await new Promise(resolve => setTimeout(resolve, 200)); // Brief pause before post-processing
+          }
 
-        if (files.length > 0) {
-          // Always start post-processing stage to ensure progress doesn't reach 100% prematurely
-          console.log('🔄 Starting post-processing stage...');
-          sendUnifiedProgress('postprocessing', 10, { stage: 'Post-processing files' });
+          // Find the downloaded files (handle carousel posts with multiple files)
+          let files = fs.readdirSync(tempDir).filter(file =>
+            // Filter out info.json files and thumbnails, keep media files
+            !/\.(info\.json|description|annotations\.xml)$/i.test(file) &&
+            !/thumbnail/i.test(file)
+          );
 
-          // Handle segment trimming if needed
-          console.log('🔍 Checking segment trimming:', { segmentInfo, filesCount: files.length });
-          if (segmentInfo) {
-            // Find the video file among downloaded files
-            const videoFile = files.find(file => /\.(mp4|mkv|webm|avi|mov|flv|m4v)$/i.test(file));
-            console.log('📹 Processing video for trimming:', { videoFile, allFiles: files });
+          if (files.length > 0) {
+            // Always start post-processing stage to ensure progress doesn't reach 100% prematurely
+            console.log('🔄 Starting post-processing stage...');
+            sendUnifiedProgress('postprocessing', 10, { stage: 'Post-processing files' });
 
-            if (videoFile) {
-              const originalPath = path.join(tempDir, videoFile);
-              const isVideo = true; // We already confirmed it's a video file
+            // Handle segment trimming if needed
+            console.log('🔍 Checking segment trimming:', { segmentInfo, filesCount: files.length });
+            if (segmentInfo) {
+              // Find the video file among downloaded files
+              const videoFile = files.find(file => /\.(mp4|mkv|webm|avi|mov|flv|m4v)$/i.test(file));
+              console.log('📹 Processing video for trimming:', { videoFile, allFiles: files });
 
-              if (isVideo) {
-                const ext = path.extname(videoFile);
-                const baseName = path.basename(videoFile, ext);
-                const trimmedFile = `${baseName}_trimmed${ext}`;
-                const trimmedPath = path.join(tempDir, trimmedFile);
+              if (videoFile) {
+                const originalPath = path.join(tempDir, videoFile);
+                const isVideo = true; // We already confirmed it's a video file
 
-                try {
-                  // First, get video duration using ffprobe
-                  console.log('🔍 Checking video duration with ffprobe...');
-                  const ffprobeArgs = ['-v', 'quiet', '-print_format', 'json', '-show_format', originalPath];
-                  const ffprobe = spawn('ffprobe', ffprobeArgs);
+                if (isVideo) {
+                  const ext = path.extname(videoFile);
+                  const baseName = path.basename(videoFile, ext);
+                  const trimmedFile = `${baseName}_trimmed${ext}`;
+                  const trimmedPath = path.join(tempDir, trimmedFile);
 
-                  let ffprobeOutput = '';
-                  ffprobe.stdout.on('data', (data) => {
-                    ffprobeOutput += data.toString();
-                  });
-
-                  await new Promise((resolve, reject) => {
-                    ffprobe.on('close', (code) => {
-                      if (code === 0) {
-                        try {
-                          const probeData = JSON.parse(ffprobeOutput);
-                          const videoDuration = parseFloat(probeData.format.duration);
-                          console.log(`📏 Video duration: ${videoDuration} seconds`);
-                          console.log(`⏰ Requested start: ${segmentInfo.startSeconds}s, duration: ${segmentInfo.duration}s`);
-
-                          if (segmentInfo.startSeconds >= videoDuration) {
-                            throw new Error(`Start time (${segmentInfo.startSeconds}s) is beyond video duration (${videoDuration}s)`);
-                          }
-
-                          if (segmentInfo.startSeconds + segmentInfo.duration > videoDuration) {
-                            const adjustedDuration = videoDuration - segmentInfo.startSeconds;
-                            console.log(`⚠️ Adjusting duration from ${segmentInfo.duration}s to ${adjustedDuration}s to fit video length`);
-                            segmentInfo.duration = adjustedDuration;
-                          }
-
-                          resolve();
-                        } catch (parseError) {
-                          reject(new Error(`Failed to parse ffprobe output: ${parseError.message}`));
-                        }
-                      } else {
-                        reject(new Error(`ffprobe failed with code ${code}`));
-                      }
-                    });
-                  });
-
-                  // Use ffmpeg to trim the video with stream copying to preserve quality
-                  // Use input seeking for better stream copy compatibility
-                  const ffmpegArgs = [
-                    '-ss', segmentInfo.startSeconds.toString(), // Seek before input for better stream copy
-                    '-i', originalPath,
-                    '-t', segmentInfo.duration.toString(),
-                    '-c', 'copy', // Copy streams without re-encoding to preserve quality
-                    '-avoid_negative_ts', 'make_zero',
-                    '-map_metadata', '0', // Copy metadata
-                    '-y', // Overwrite output file
-                    trimmedPath
-                  ];
-
-                  // Fallback args with re-encoding if stream copy fails
-                  const fallbackArgs = [
-                    '-ss', segmentInfo.startSeconds.toString(), // Input seeking for consistency
-                    '-i', originalPath,
-                    '-t', segmentInfo.duration.toString(),
-                    '-c:v', 'libx264', // Re-encode video as fallback
-                    '-c:a', 'aac', // Re-encode audio as fallback
-                    '-preset', 'medium', // Better quality preset
-                    '-crf', '15', // Very high quality encoding (lower = better)
-                    '-profile:v', 'high', // High profile for better quality
-                    '-level', '4.1', // Compatibility level
-                    '-pix_fmt', 'yuv420p', // Ensure compatible pixel format
-                    '-avoid_negative_ts', 'make_zero',
-                    '-map_metadata', '0', // Copy metadata
-                    '-y', // Overwrite output file
-                    trimmedPath
-                  ];
-
-                  // Function to try FFmpeg with given arguments
-                  const tryFFmpeg = (args, description) => {
-                    return new Promise((resolve, reject) => {
-                      console.log(`⚡ Starting ffmpeg ${description} with args:`, args);
-                      const ffmpeg = spawn('ffmpeg', args);
-
-                      let ffmpegStderr = '';
-                      let duration = null;
-
-                      ffmpeg.stderr.on('data', (data) => {
-                        const stderrLine = data.toString();
-                        ffmpegStderr += stderrLine;
-                        console.log('🔍 FFmpeg stderr:', stderrLine.trim());
-
-                        // Parse duration from FFmpeg output
-                        const durationMatch = stderrLine.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
-                        if (durationMatch && !duration) {
-                          const hours = parseInt(durationMatch[1]);
-                          const minutes = parseInt(durationMatch[2]);
-                          const seconds = parseInt(durationMatch[3]);
-                          duration = hours * 3600 + minutes * 60 + seconds;
-                          console.log('📏 FFmpeg detected duration:', duration, 'seconds');
-                        }
-
-                        // Parse progress from FFmpeg output
-                        const timeMatch = stderrLine.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
-                        if (timeMatch && duration) {
-                          const hours = parseInt(timeMatch[1]);
-                          const minutes = parseInt(timeMatch[2]);
-                          const seconds = parseInt(timeMatch[3]);
-                          const currentTime = hours * 3600 + minutes * 60 + seconds;
-                          const progress = Math.min(Math.round((currentTime / duration) * 80) + 10, 90); // 10-90% range
-                          sendUnifiedProgress('postprocessing', progress, { stage: 'FFmpeg processing', currentTime, duration });
-                        }
-                      });
-
-                      ffmpeg.stdout.on('data', (data) => {
-                        console.log('📺 FFmpeg stdout:', data.toString().trim());
-                      });
-
-                      // Set a timeout for FFmpeg process (30 seconds)
-                      const timeout = setTimeout(() => {
-                        ffmpeg.kill('SIGKILL');
-                        reject(new Error(`FFmpeg ${description} timeout after 30 seconds`));
-                      }, 30000);
-
-                      ffmpeg.on('close', (ffmpegCode) => {
-                        clearTimeout(timeout);
-                        if (ffmpegCode === 0) {
-                          resolve();
-                        } else {
-                          reject(new Error(`FFmpeg ${description} failed with code ${ffmpegCode}. Stderr: ${ffmpegStderr}`));
-                        }
-                      });
-                    });
-                  };
-
-                  // Start post-processing stage
-                  console.log('🔄 Starting post-processing (trimming)...');
-                  sendUnifiedProgress('postprocessing', 10, { stage: 'Starting FFmpeg trimming' });
-
-                  // Use only stream copying to preserve original quality exactly
-                  let ffmpegSuccess = false;
                   try {
-                    await tryFFmpeg(ffmpegArgs, 'stream copy (preserving original quality)');
-                    ffmpegSuccess = true;
-                    console.log('✅ Stream copy successful - original quality preserved exactly');
-                  } catch (streamCopyError) {
-                    throw new Error(`Stream copy failed: ${streamCopyError.message}. Original quality cannot be preserved with re-encoding.`);
+                    // First, get video duration using ffprobe
+                    console.log('🔍 Checking video duration with ffprobe...');
+                    const ffprobeArgs = ['-v', 'quiet', '-print_format', 'json', '-show_format', originalPath];
+                    const ffprobe = spawn('ffprobe', ffprobeArgs);
+
+                    let ffprobeOutput = '';
+                    ffprobe.stdout.on('data', (data) => {
+                      ffprobeOutput += data.toString();
+                    });
+
+                    await new Promise((resolve, reject) => {
+                      ffprobe.on('close', (code) => {
+                        if (code === 0) {
+                          try {
+                            const probeData = JSON.parse(ffprobeOutput);
+                            const videoDuration = parseFloat(probeData.format.duration);
+                            console.log(`📏 Video duration: ${videoDuration} seconds`);
+                            console.log(`⏰ Requested start: ${segmentInfo.startSeconds}s, duration: ${segmentInfo.duration}s`);
+
+                            if (segmentInfo.startSeconds >= videoDuration) {
+                              throw new Error(`Start time (${segmentInfo.startSeconds}s) is beyond video duration (${videoDuration}s)`);
+                            }
+
+                            if (segmentInfo.startSeconds + segmentInfo.duration > videoDuration) {
+                              const adjustedDuration = videoDuration - segmentInfo.startSeconds;
+                              console.log(`⚠️ Adjusting duration from ${segmentInfo.duration}s to ${adjustedDuration}s to fit video length`);
+                              segmentInfo.duration = adjustedDuration;
+                            }
+
+                            resolve();
+                          } catch (parseError) {
+                            reject(new Error(`Failed to parse ffprobe output: ${parseError.message}`));
+                          }
+                        } else {
+                          reject(new Error(`ffprobe failed with code ${code}`));
+                        }
+                      });
+                    });
+
+                    // Use ffmpeg to trim the video with stream copying to preserve quality
+                    // Use input seeking for better stream copy compatibility
+                    const ffmpegArgs = [
+                      '-ss', segmentInfo.startSeconds.toString(), // Seek before input for better stream copy
+                      '-i', originalPath,
+                      '-t', segmentInfo.duration.toString(),
+                      '-c', 'copy', // Copy streams without re-encoding to preserve quality
+                      '-avoid_negative_ts', 'make_zero',
+                      '-map_metadata', '0', // Copy metadata
+                      '-y', // Overwrite output file
+                      trimmedPath
+                    ];
+
+                    // Fallback args with re-encoding if stream copy fails
+                    const fallbackArgs = [
+                      '-ss', segmentInfo.startSeconds.toString(), // Input seeking for consistency
+                      '-i', originalPath,
+                      '-t', segmentInfo.duration.toString(),
+                      '-c:v', 'libx264', // Re-encode video as fallback
+                      '-c:a', 'aac', // Re-encode audio as fallback
+                      '-preset', 'medium', // Better quality preset
+                      '-crf', '15', // Very high quality encoding (lower = better)
+                      '-profile:v', 'high', // High profile for better quality
+                      '-level', '4.1', // Compatibility level
+                      '-pix_fmt', 'yuv420p', // Ensure compatible pixel format
+                      '-avoid_negative_ts', 'make_zero',
+                      '-map_metadata', '0', // Copy metadata
+                      '-y', // Overwrite output file
+                      trimmedPath
+                    ];
+
+                    // Function to try FFmpeg with given arguments
+                    const tryFFmpeg = (args, description) => {
+                      return new Promise((resolve, reject) => {
+                        console.log(`⚡ Starting ffmpeg ${description} with args:`, args);
+                        const ffmpeg = spawn('ffmpeg', args);
+
+                        let ffmpegStderr = '';
+                        let duration = null;
+
+                        ffmpeg.stderr.on('data', (data) => {
+                          const stderrLine = data.toString();
+                          ffmpegStderr += stderrLine;
+                          console.log('🔍 FFmpeg stderr:', stderrLine.trim());
+
+                          // Parse duration from FFmpeg output
+                          const durationMatch = stderrLine.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+                          if (durationMatch && !duration) {
+                            const hours = parseInt(durationMatch[1]);
+                            const minutes = parseInt(durationMatch[2]);
+                            const seconds = parseInt(durationMatch[3]);
+                            duration = hours * 3600 + minutes * 60 + seconds;
+                            console.log('📏 FFmpeg detected duration:', duration, 'seconds');
+                          }
+
+                          // Parse progress from FFmpeg output
+                          const timeMatch = stderrLine.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+                          if (timeMatch && duration) {
+                            const hours = parseInt(timeMatch[1]);
+                            const minutes = parseInt(timeMatch[2]);
+                            const seconds = parseInt(timeMatch[3]);
+                            const currentTime = hours * 3600 + minutes * 60 + seconds;
+                            const progress = Math.min(Math.round((currentTime / duration) * 80) + 10, 90); // 10-90% range
+                            sendUnifiedProgress('postprocessing', progress, { stage: 'FFmpeg processing', currentTime, duration });
+                          }
+                        });
+
+                        ffmpeg.stdout.on('data', (data) => {
+                          console.log('📺 FFmpeg stdout:', data.toString().trim());
+                        });
+
+                        // Set a timeout for FFmpeg process (30 seconds)
+                        const timeout = setTimeout(() => {
+                          ffmpeg.kill('SIGKILL');
+                          reject(new Error(`FFmpeg ${description} timeout after 30 seconds`));
+                        }, 30000);
+
+                        ffmpeg.on('close', (ffmpegCode) => {
+                          clearTimeout(timeout);
+                          if (ffmpegCode === 0) {
+                            resolve();
+                          } else {
+                            reject(new Error(`FFmpeg ${description} failed with code ${ffmpegCode}. Stderr: ${ffmpegStderr}`));
+                          }
+                        });
+                      });
+                    };
+
+                    // Start post-processing stage
+                    console.log('🔄 Starting post-processing (trimming)...');
+                    sendUnifiedProgress('postprocessing', 10, { stage: 'Starting FFmpeg trimming' });
+
+                    // Use only stream copying to preserve original quality exactly
+                    let ffmpegSuccess = false;
+                    try {
+                      await tryFFmpeg(ffmpegArgs, 'stream copy (preserving original quality)');
+                      ffmpegSuccess = true;
+                      console.log('✅ Stream copy successful - original quality preserved exactly');
+                    } catch (streamCopyError) {
+                      throw new Error(`Stream copy failed: ${streamCopyError.message}. Original quality cannot be preserved with re-encoding.`);
+                    }
+
+                    if (ffmpegSuccess) {
+                      // Wait a moment for file system to sync
+                      await new Promise(resolve => setTimeout(resolve, 100));
+
+                      // Check if trimmed file exists and get its size
+                      if (!fs.existsSync(trimmedPath)) {
+                        throw new Error(`Trimmed file not found: ${trimmedPath}`);
+                      }
+
+                      const trimmedStats = fs.statSync(trimmedPath);
+                      console.log('📊 Trimmed file size:', trimmedStats.size, 'bytes');
+
+                      // Verify trimmed file is not empty or too small
+                      if (trimmedStats.size < 10000) { // Less than 10KB is suspicious
+                        console.warn('⚠️ Trimmed file seems too small, continuing anyway');
+                      }
+
+                      // Replace original file with trimmed version
+                      if (fs.existsSync(originalPath)) {
+                        fs.unlinkSync(originalPath);
+                        console.log('🗑️ Deleted original file:', originalPath);
+                      }
+
+                      // Move trimmed file to original location to maintain file serving logic
+                      fs.renameSync(trimmedPath, originalPath);
+                      console.log('📁 Moved trimmed file to:', originalPath);
+
+                      // Verify the moved file
+                      const finalStats = fs.statSync(originalPath);
+                      console.log('✅ Final file size:', finalStats.size, 'bytes');
+
+                      if (finalStats.size !== trimmedStats.size) {
+                        throw new Error(`File size mismatch after move: expected ${trimmedStats.size}, got ${finalStats.size}`);
+                      }
+
+                      console.log('✅ FFmpeg trimming completed successfully');
+
+                      // FFmpeg trimming completed, but don't mark as 100% yet - wait for file serving
+                      sendUnifiedProgress('postprocessing', 90, { stage: 'FFmpeg trimming completed, preparing file' });
+                    }
+                  } catch (error) {
+                    console.error('FFmpeg trimming failed:', error);
+                    // Continue with original file if trimming fails
                   }
-
-                  if (ffmpegSuccess) {
-                    // Wait a moment for file system to sync
-                    await new Promise(resolve => setTimeout(resolve, 100));
-
-                    // Check if trimmed file exists and get its size
-                    if (!fs.existsSync(trimmedPath)) {
-                      throw new Error(`Trimmed file not found: ${trimmedPath}`);
-                    }
-
-                    const trimmedStats = fs.statSync(trimmedPath);
-                    console.log('📊 Trimmed file size:', trimmedStats.size, 'bytes');
-
-                    // Verify trimmed file is not empty or too small
-                    if (trimmedStats.size < 10000) { // Less than 10KB is suspicious
-                      console.warn('⚠️ Trimmed file seems too small, continuing anyway');
-                    }
-
-                    // Replace original file with trimmed version
-                    if (fs.existsSync(originalPath)) {
-                      fs.unlinkSync(originalPath);
-                      console.log('🗑️ Deleted original file:', originalPath);
-                    }
-
-                    // Move trimmed file to original location to maintain file serving logic
-                    fs.renameSync(trimmedPath, originalPath);
-                    console.log('📁 Moved trimmed file to:', originalPath);
-
-                    // Verify the moved file
-                    const finalStats = fs.statSync(originalPath);
-                    console.log('✅ Final file size:', finalStats.size, 'bytes');
-
-                    if (finalStats.size !== trimmedStats.size) {
-                      throw new Error(`File size mismatch after move: expected ${trimmedStats.size}, got ${finalStats.size}`);
-                    }
-
-                    console.log('✅ FFmpeg trimming completed successfully');
-
-                    // FFmpeg trimming completed, but don't mark as 100% yet - wait for file serving
-                    sendUnifiedProgress('postprocessing', 90, { stage: 'FFmpeg trimming completed, preparing file' });
-                  }
-                } catch (error) {
-                  console.error('FFmpeg trimming failed:', error);
-                  // Continue with original file if trimming fails
                 }
+              } else {
+                // No segment trimming needed, but don't mark as 100% yet - wait for file serving
+                console.log('✅ Post-processing completed (no trimming required)');
+                sendUnifiedProgress('postprocessing', 90, { stage: 'Post-processing completed, preparing file' });
               }
+            }
+
+            // Sort files to prioritize videos over images
+            const sortedFiles = files.sort((a, b) => {
+              const aIsVideo = /\.(mp4|mkv|webm|avi|mov|flv|m4v)$/i.test(a);
+              const bIsVideo = /\.(mp4|mkv|webm|avi|mov|flv|m4v)$/i.test(b);
+              if (aIsVideo && !bIsVideo) return -1;
+              if (!aIsVideo && bIsVideo) return 1;
+              return a.localeCompare(b);
+            });
+
+            // If multiple files (carousel post), create a zip archive
+            if (sortedFiles.length > 1 && platform === 'instagram') {
+
+              const zipFilename = `${filename || 'instagram_carousel'}.zip`;
+              res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
+              res.setHeader('Content-Type', 'application/zip');
+
+              const archive = archiver('zip', { zlib: { level: 9 } });
+
+              // Handle client disconnect
+              res.on('close', () => {
+                archive.destroy();
+                fs.rmSync(tempDir, { recursive: true, force: true });
+              });
+
+              // Handle archive errors
+              archive.on('error', (err) => {
+                console.error('Archive error:', err);
+                res.status(500).json({ error: 'Failed to create archive' });
+                fs.rmSync(tempDir, { recursive: true, force: true });
+              });
+
+              // Track archive streaming progress
+              let archiveBytesStreamed = 0;
+
+              archive.on('data', (chunk) => {
+                archiveBytesStreamed += chunk.length;
+                const streamProgress = Math.min(95, 10 + (archiveBytesStreamed / (1024 * 1024)) * 0.5); // Gradual progress
+                sendUnifiedProgress('postprocessing', streamProgress, {
+                  stage: `Streaming archive (${Math.round(archiveBytesStreamed / 1024 / 1024)}MB)`
+                });
+              });
+
+              // Pipe archive to response
+              archive.pipe(res);
+
+              // Add files to archive
+              sortedFiles.forEach((file, index) => {
+                const filePath = path.join(tempDir, file);
+                const ext = path.extname(file);
+                const baseName = path.basename(file, ext);
+                // Create meaningful names for carousel items
+                const archiveName = `carousel_item_${index + 1}_${baseName}${ext}`;
+                archive.file(filePath, { name: archiveName });
+              });
+
+              // Finalize archive
+              archive.finalize();
+
+              // Clean up after sending
+              archive.on('end', () => {
+                console.log('✅ Archive streaming completed successfully');
+                sendUnifiedProgress('postprocessing', 100, { stage: 'Download completed', completed: true });
+                fs.rmSync(tempDir, { recursive: true, force: true });
+              });
+
             } else {
-              // No segment trimming needed, but don't mark as 100% yet - wait for file serving
-              console.log('✅ Post-processing completed (no trimming required)');
-              sendUnifiedProgress('postprocessing', 90, { stage: 'Post-processing completed, preparing file' });
-            }
-          }
+              // Single file - send as normal
+              const downloadedFile = path.join(tempDir, sortedFiles[0]);
 
-          // Sort files to prioritize videos over images
-          const sortedFiles = files.sort((a, b) => {
-            const aIsVideo = /\.(mp4|mkv|webm|avi|mov|flv|m4v)$/i.test(a);
-            const bIsVideo = /\.(mp4|mkv|webm|avi|mov|flv|m4v)$/i.test(b);
-            if (aIsVideo && !bIsVideo) return -1;
-            if (!aIsVideo && bIsVideo) return 1;
-            return a.localeCompare(b);
-          });
-
-          // If multiple files (carousel post), create a zip archive
-          if (sortedFiles.length > 1 && platform === 'instagram') {
-
-            const zipFilename = `${filename || 'instagram_carousel'}.zip`;
-            res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
-            res.setHeader('Content-Type', 'application/zip');
-
-            const archive = archiver('zip', { zlib: { level: 9 } });
-
-            // Handle client disconnect
-            res.on('close', () => {
-              archive.destroy();
-              fs.rmSync(tempDir, { recursive: true, force: true });
-            });
-
-            // Handle archive errors
-            archive.on('error', (err) => {
-              console.error('Archive error:', err);
-              res.status(500).json({ error: 'Failed to create archive' });
-              fs.rmSync(tempDir, { recursive: true, force: true });
-            });
-
-            // Track archive streaming progress
-            let archiveBytesStreamed = 0;
-
-            archive.on('data', (chunk) => {
-              archiveBytesStreamed += chunk.length;
-              const streamProgress = Math.min(95, 10 + (archiveBytesStreamed / (1024 * 1024)) * 0.5); // Gradual progress
-              sendUnifiedProgress('postprocessing', streamProgress, {
-                stage: `Streaming archive (${Math.round(archiveBytesStreamed / 1024 / 1024)}MB)`
-              });
-            });
-
-            // Pipe archive to response
-            archive.pipe(res);
-
-            // Add files to archive
-            sortedFiles.forEach((file, index) => {
-              const filePath = path.join(tempDir, file);
-              const ext = path.extname(file);
-              const baseName = path.basename(file, ext);
-              // Create meaningful names for carousel items
-              const archiveName = `carousel_item_${index + 1}_${baseName}${ext}`;
-              archive.file(filePath, { name: archiveName });
-            });
-
-            // Finalize archive
-            archive.finalize();
-
-            // Clean up after sending
-            archive.on('end', () => {
-              console.log('✅ Archive streaming completed successfully');
-              sendUnifiedProgress('postprocessing', 100, { stage: 'Download completed', completed: true });
-              fs.rmSync(tempDir, { recursive: true, force: true });
-            });
-
-          } else {
-            // Single file - send as normal
-            const downloadedFile = path.join(tempDir, sortedFiles[0]);
-
-            // Check if file exists, if not it might be a trimmed file issue
-            if (!fs.existsSync(downloadedFile)) {
-              console.error('❌ File not found:', downloadedFile);
-              console.log('📁 Available files in temp dir:', fs.readdirSync(tempDir));
-              fs.rmSync(tempDir, { recursive: true, force: true });
-              return res.status(500).json({ error: 'Processed file not found' });
-            }
-
-            const stats = fs.statSync(downloadedFile);
-            console.log('📤 Serving file:', downloadedFile, 'Size:', stats.size, 'bytes');
-
-            // Send file as download
-            const finalFilename = filename || sortedFiles[0];
-            // Properly encode filename for Content-Disposition header - sanitize all non-ASCII and special characters
-            const sanitizedFilename = finalFilename.replace(/[^\w\s.-]/g, '_').replace(/\s+/g, '_');
-            const encodedFilename = encodeURIComponent(sanitizedFilename).replace(/'/g, '%27');
-            res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}; filename="${sanitizedFilename}"`);
-            res.setHeader('Content-Type', 'application/octet-stream');
-            res.setHeader('Content-Length', stats.size);
-
-            const fileStream = fs.createReadStream(downloadedFile);
-            let bytesStreamed = 0;
-            const totalSize = stats.size;
-
-            // Handle client disconnect during file streaming
-            res.on('close', () => {
-              fileStream.destroy();
-              fs.rmSync(tempDir, { recursive: true, force: true });
-            });
-
-            // Track streaming progress
-            fileStream.on('data', (chunk) => {
-              bytesStreamed += chunk.length;
-              const streamProgress = Math.min(95, 10 + (bytesStreamed / totalSize) * 85); // 10% to 95%
-              sendUnifiedProgress('postprocessing', streamProgress, {
-                stage: `Streaming file (${Math.round(bytesStreamed / 1024 / 1024)}MB / ${Math.round(totalSize / 1024 / 1024)}MB)`
-              });
-            });
-
-            fileStream.pipe(res);
-
-            // Clean up after sending
-            fileStream.on('end', () => {
-              console.log('✅ File streaming completed successfully');
-              sendUnifiedProgress('postprocessing', 100, { stage: 'Download completed', completed: true });
-              fs.rmSync(tempDir, { recursive: true, force: true });
-            });
-
-            fileStream.on('error', (error) => {
-              console.error('File stream error:', error);
-              fs.rmSync(tempDir, { recursive: true, force: true });
-              if (!res.headersSent) {
-                res.status(500).json({ error: 'Failed to send file' });
+              // Check if file exists, if not it might be a trimmed file issue
+              if (!fs.existsSync(downloadedFile)) {
+                console.error('❌ File not found:', downloadedFile);
+                console.log('📁 Available files in temp dir:', fs.readdirSync(tempDir));
+                fs.rmSync(tempDir, { recursive: true, force: true });
+                return res.status(500).json({ error: 'Processed file not found' });
               }
-            });
+
+              const stats = fs.statSync(downloadedFile);
+              console.log('📤 Serving file:', downloadedFile, 'Size:', stats.size, 'bytes');
+
+              // Send file as download
+              const finalFilename = filename || sortedFiles[0];
+              // Properly encode filename for Content-Disposition header - sanitize all non-ASCII and special characters
+              const sanitizedFilename = finalFilename.replace(/[^\w\s.-]/g, '_').replace(/\s+/g, '_');
+              const encodedFilename = encodeURIComponent(sanitizedFilename).replace(/'/g, '%27');
+              res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}; filename="${sanitizedFilename}"`);
+              res.setHeader('Content-Type', 'application/octet-stream');
+              res.setHeader('Content-Length', stats.size);
+
+              const fileStream = fs.createReadStream(downloadedFile);
+              let bytesStreamed = 0;
+              const totalSize = stats.size;
+
+              // Handle client disconnect during file streaming
+              res.on('close', () => {
+                fileStream.destroy();
+                fs.rmSync(tempDir, { recursive: true, force: true });
+              });
+
+              // Track streaming progress
+              fileStream.on('data', (chunk) => {
+                bytesStreamed += chunk.length;
+                const streamProgress = Math.min(95, 10 + (bytesStreamed / totalSize) * 85); // 10% to 95%
+                sendUnifiedProgress('postprocessing', streamProgress, {
+                  stage: `Streaming file (${Math.round(bytesStreamed / 1024 / 1024)}MB / ${Math.round(totalSize / 1024 / 1024)}MB)`
+                });
+              });
+
+              fileStream.pipe(res);
+
+              // Clean up after sending
+              fileStream.on('end', () => {
+                console.log('✅ File streaming completed successfully');
+                sendUnifiedProgress('postprocessing', 100, { stage: 'Download completed', completed: true });
+                fs.rmSync(tempDir, { recursive: true, force: true });
+              });
+
+              fileStream.on('error', (error) => {
+                console.error('File stream error:', error);
+                fs.rmSync(tempDir, { recursive: true, force: true });
+                if (!res.headersSent) {
+                  res.status(500).json({ error: 'Failed to send file' });
+                }
+              });
+            }
+          } else {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+            res.status(500).json({ error: 'No file was downloaded' });
           }
         } else {
           fs.rmSync(tempDir, { recursive: true, force: true });
-          res.status(500).json({ error: 'No file was downloaded' });
-        }
-      } else {
-        fs.rmSync(tempDir, { recursive: true, force: true });
 
-        // Handle YouTube authentication issues specifically
-        const errorOutput = (stderr || stdout || '').toLowerCase();
-        if (platform === 'youtube' && (errorOutput.includes('login_required') ||
-          errorOutput.includes('sign in to confirm') ||
-          errorOutput.includes('cookies-from-browser') ||
-          errorOutput.includes('authentication'))) {
-          return res.status(403).json({
-            error: 'YouTube authentication required',
-            details: 'YouTube is blocking downloads from this server due to anti-bot measures. This is a common issue on production hosting platforms.',
-            platform: 'youtube',
-            isProduction: isProductionEnvironment(),
-            suggestion: 'Try using the local server for YouTube downloads, or try alternative platforms like TikTok, Twitter, or Instagram which work more reliably on production servers.',
-            technicalDetails: stderr || stdout
+          // Handle YouTube authentication issues specifically
+          const errorOutput = (stderr || stdout || '').toLowerCase();
+
+          // Check for YouTube authentication/Geo-lock issues
+          const isAuthError = platform === 'youtube' && (
+            errorOutput.includes('login_required') ||
+            errorOutput.includes('sign in to confirm') ||
+            errorOutput.includes('cookies-from-browser') ||
+            errorOutput.includes('authentication')
+          );
+
+          const usedCookies = ytDlpArgs.includes('--cookies');
+
+          // RETRY LOGIC: If auth failed with cookies, try without
+          if (isAuthError && usedCookies && !isRetry) {
+            console.log('⚠️ YouTube authentication failed (Geo-lock). Retrying WITHOUT cookies...');
+            sendUnifiedProgress('video', 0, { message: 'Authentication rejected. Retrying public access...' });
+
+            // Remove --cookies and its value
+            const cookieIndex = ytDlpArgs.indexOf('--cookies');
+            if (cookieIndex !== -1) {
+              ytDlpArgs.splice(cookieIndex, 2);
+            }
+
+            // Cleanup old temp dir
+            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) { }
+
+            // New temp dir for retry
+            tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ytdl-retry-'));
+
+            // Update --output path in args
+            const outputIndex = ytDlpArgs.indexOf('--output');
+            if (outputIndex !== -1) {
+              ytDlpArgs[outputIndex + 1] = path.join(tempDir, '%(title)s_%(id)s.%(ext)s');
+            }
+
+            // Recursively call execution with retry flag
+            return executeDownloadSession(true);
+          }
+
+          // Standard 403 Response if not retrying or retry failed
+          if (isAuthError) {
+            const msg = isRetry ? 'YouTube authentication required (Retry failed)' : 'YouTube authentication required';
+            const details = isRetry
+              ? 'Both authenticated (cookie) and public (no-cookie) access attempts failed. The video is likely strictly age-gated or premium-only.'
+              : 'YouTube is blocking downloads from this server due to anti-bot measures.';
+
+            return res.status(403).json({
+              error: msg,
+              details: details,
+              platform: 'youtube',
+              isProduction: isProductionEnvironment(),
+              suggestion: 'Try using fresh cookies exported from a US IP address, or use a Proxy.',
+              technicalDetails: stderr || stdout
+            });
+          }
+
+          res.status(500).json({
+            error: `yt-dlp failed with code ${code}`,
+            details: stderr || stdout,
+            platform: platform
           });
         }
+      });
 
-        res.status(500).json({
-          error: `yt-dlp failed with code ${code}`,
-          details: stderr || stdout,
-          platform: platform
-        });
-      }
-    });
+      ytDlp.on('error', (error) => {
+        clearConnectionCheck();
+        // Clear download timeout
+        const downloadData = activeDownloads.get(url);
+        if (downloadData && downloadData.timeout) {
+          clearTimeout(downloadData.timeout);
+        }
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        if (!res.headersSent) {
+          res.status(500).json({
+            error: 'Failed to start yt-dlp',
+            details: error.message
+          });
+        }
+      });
 
-    ytDlp.on('error', (error) => {
-      clearConnectionCheck();
-      // Clear download timeout
-      const downloadData = activeDownloads.get(url);
-      if (downloadData && downloadData.timeout) {
-        clearTimeout(downloadData.timeout);
-      }
-      fs.rmSync(tempDir, { recursive: true, force: true });
-      if (!res.headersSent) {
-        res.status(500).json({
-          error: 'Failed to start yt-dlp',
-          details: error.message
-        });
-      }
-    });
+    }; // End executeDownloadSession
+
+    // Start the download process
+    await executeDownloadSession();
 
   } catch (error) {
     console.error('Download error:', error);
