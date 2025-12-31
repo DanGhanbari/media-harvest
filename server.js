@@ -3175,8 +3175,8 @@ app.post('/api/video-info', async (req, res) => {
         console.log('🍪 Using cookies from env for video info:', process.env.YOUTUBE_COOKIES_PATH);
       }
 
-      // Use TV client to avoid SABR streaming issues with web client
-      ytDlpArgs.push('--extractor-args', 'youtube:player_client=tv');
+      // Use Web client to allow cookies to work properly
+      ytDlpArgs.push('--extractor-args', 'youtube:player_client=web,web_creator');
     }
 
     ytDlpArgs.push(url);
@@ -3311,312 +3311,60 @@ app.post('/api/video-info', async (req, res) => {
           return; // Prevent falling through to the proxy rotation system
         }
 
-        // Enhanced fallback system for YouTube bot detection with proxy rotation
+        // Helper to run a strategy with web-focused clients (bypassing TV/Android loops)
         if ((url.includes('youtube.com') || url.includes('youtu.be')) &&
-          (stderr.includes('Sign in to confirm') || stderr.includes('could not find chrome cookies database') ||
-            stderr.includes('bot') || stderr.includes('429') || stderr.includes('403') ||
-            stderr.includes('Failed to extract any player response') || stderr.includes('please report this issue'))) {
+          (stderr.includes('Sign in to confirm') ||
+            stderr.includes('bot') || stderr.includes('429') || stderr.includes('403'))) {
 
-          console.log('🚨 YouTube access issue detected, initiating enhanced fallback with proxy rotation');
+          console.log('🚨 YouTube access issue detected, retrying with Robust Web Client and Cookies');
 
-          // Enhanced Strategy 1: Android TV client with geographic proxy rotation
-          const tryWithProxyRotation = async (strategy, baseArgs, region = null) => {
-            console.log(`🔄 Trying ${strategy} strategy${region ? ` with ${region} proxy` : ''}`);
-
-            // Get proxy configuration for this attempt
-            const proxyConfig = await youtubeBypass.getProxyConfig(region);
-            const proxyArgs = [];
-
-            if (proxyConfig) {
-              if (proxyConfig.type === 'http' || proxyConfig.type === 'https') {
-                proxyArgs.push('--proxy', proxyConfig.url);
-              } else if (proxyConfig.type === 'socks5') {
-                proxyArgs.push('--proxy', proxyConfig.url);
-              }
-              console.log(`🌐 Using ${proxyConfig.type} proxy: ${proxyConfig.url.replace(/:\/\/.*@/, '://***@')}`);
-            }
-
-            const finalArgs = [...baseArgs, ...proxyArgs, url];
-
-            const ytDlpPath = await getYtDlpPath();
-            let command, commandArgs;
-            if (ytDlpPath.includes(' ')) {
-              const parts = ytDlpPath.split(' ');
-              command = parts[0];
-              commandArgs = [...parts.slice(1), ...finalArgs];
-            } else {
-              command = ytDlpPath;
-              commandArgs = finalArgs;
-            }
-
-            return new Promise((resolve, reject) => {
-              const ytDlpProcess = spawn(command, commandArgs);
-              let stdout = '';
-              let stderr = '';
-
-              ytDlpProcess.stdout.on('data', (data) => {
-                stdout += data.toString();
-              });
-
-              ytDlpProcess.stderr.on('data', (data) => {
-                stderr += data.toString();
-              });
-
-              ytDlpProcess.on('close', (code) => {
-                if (code === 0 && stdout.trim()) {
-                  try {
-                    const videoInfo = JSON.parse(stdout.trim());
-                    const info = {
-                      title: videoInfo.title || 'Unknown Title',
-                      duration: videoInfo.duration || 0,
-                      durationString: videoInfo.duration_string || '0:00',
-                      uploader: videoInfo.uploader || videoInfo.channel || 'Unknown',
-                      thumbnail: videoInfo.thumbnail,
-                      description: videoInfo.description,
-                      viewCount: videoInfo.view_count,
-                      uploadDate: videoInfo.upload_date,
-                      platform: detectPlatform(url)
-                    };
-                    console.log(`✅ ${strategy} strategy succeeded${region ? ` with ${region} proxy` : ''}`);
-
-                    // Record success for intelligent backoff
-                    youtubeBypass.recordSuccess();
-
-                    resolve(info);
-                  } catch (parseError) {
-                    console.error(`❌ Error parsing ${strategy} JSON:`, parseError.message);
-
-                    // Record failure for intelligent backoff
-                    youtubeBypass.recordFailure('parse_error');
-
-                    reject(new Error(`Parse error: ${parseError.message}`));
-                  }
-                } else {
-                  console.log(`❌ ${strategy} strategy failed${region ? ` with ${region} proxy` : ''}: ${stderr.slice(0, 200)}`);
-
-                  // Determine failure type for better tracking
-                  let failureType = 'unknown';
-                  if (stderr.includes('Sign in to confirm')) {
-                    failureType = 'bot_detection';
-                  } else if (stderr.includes('Video unavailable')) {
-                    failureType = 'video_unavailable';
-                  } else if (stderr.includes('Private video')) {
-                    failureType = 'private_video';
-                  } else if (stderr.includes('timeout')) {
-                    failureType = 'timeout';
-                  } else if (stderr.includes('HTTP Error 429')) {
-                    failureType = 'rate_limit';
-                  } else if (stderr.includes('HTTP Error 403')) {
-                    failureType = 'forbidden';
-                  }
-
-                  // Record failure with type for intelligent backoff
-                  youtubeBypass.recordFailure(failureType);
-
-                  // Mark proxy as failed if using one
-                  if (proxyConfig) {
-                    youtubeBypass.markProxyFailed(proxyConfig.url, failureType);
-                  }
-
-                  reject(new Error(`Strategy failed: ${stderr}`));
-                }
-              });
-
-              ytDlpProcess.on('error', (error) => {
-                console.error(`❌ ${strategy} process error:`, error.message);
-                reject(error);
-              });
-            });
-          };
-
-          // Define enhanced strategy configurations with mobile app emulation
-          const strategies = [
-            {
-              name: 'YouTube Music Android',
-              args: [
-                '--dump-json', '--no-warnings', '--no-cache-dir',
-                '--user-agent', 'com.google.android.apps.youtube.music/5.16.51 (Linux; U; Android 11) gzip',
-                '--extractor-args', 'youtube:player_client=youtube_music_android',
-                '--add-header', 'X-YouTube-Client-Name:21',
-                '--add-header', 'X-YouTube-Client-Version:5.16.51',
-                '--socket-timeout', '60',
-                '--retries', '2',
-                '--sleep-interval', '2'
-              ]
-            },
-            {
-              name: 'YouTube Music iOS',
-              args: [
-                '--dump-json', '--no-warnings', '--no-cache-dir',
-                '--user-agent', 'com.google.ios.youtubemusic/5.21 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)',
-                '--extractor-args', 'youtube:player_client=youtube_music_ios',
-                '--add-header', 'X-YouTube-Client-Name:26',
-                '--add-header', 'X-YouTube-Client-Version:5.21',
-                '--socket-timeout', '60',
-                '--retries', '2',
-                '--sleep-interval', '2'
-              ]
-            },
-            {
-              name: 'Android TV',
-              args: [
-                '--dump-json', '--no-warnings', '--no-cache-dir',
-                '--user-agent', 'com.google.android.apps.youtube.unplugged/8.49.0 (Linux; U; Android 13) gzip',
-                '--extractor-args', 'youtube:player_client=android_tv',
-                '--add-header', 'X-YouTube-Client-Name:56',
-                '--add-header', 'X-YouTube-Client-Version:8.49.0',
-                '--socket-timeout', '60',
-                '--retries', '2',
-                '--sleep-interval', '3'
-              ]
-            },
-            {
-              name: 'Android TestSuite',
-              args: [
-                '--dump-json', '--no-warnings', '--no-cache-dir',
-                '--user-agent', 'com.google.android.youtube/17.31.35 (Linux; U; Android 11) gzip',
-                '--extractor-args', 'youtube:player_client=android_testsuite',
-                '--add-header', 'X-YouTube-Client-Name:30',
-                '--add-header', 'X-YouTube-Client-Version:17.31.35',
-                '--socket-timeout', '60',
-                '--retries', '2',
-                '--sleep-interval', '2'
-              ]
-            },
-            {
-              name: 'Mobile Web Bypass',
-              args: [
-                '--dump-json', '--no-warnings', '--no-cache-dir',
-                '--extractor-args', 'youtube:player_client=mweb_bypass',
-                '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_6 like Mac OS X) AppleWebKit/605.1.15',
-                '--socket-timeout', '60',
-                '--retries', '2',
-                '--sleep-interval', '2'
-              ]
-            },
-            {
-              name: 'Web Embed',
-              args: [
-                '--dump-json', '--no-warnings', '--no-cache-dir',
-                '--extractor-args', 'youtube:player_client=web_embedded',
-                '--user-agent', getRandomUserAgent(),
-                '--socket-timeout', '60',
-                '--retries', '2',
-                '--sleep-interval', '2'
-              ]
-            },
-            {
-              name: 'Minimal',
-              args: [
-                '--dump-json', '--no-warnings', '--ignore-config',
-                '--socket-timeout', '30'
-              ]
-            }
+          const retryWebArgs = [
+            '--dump-json',
+            '--no-playlist',
+            '--no-warnings',
+            '--extractor-args', 'youtube:player_client=web,web_creator', // FORCE WEB
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
           ];
 
-          // Try each strategy with different proxy regions
-          const regions = ['US', 'EU', 'APAC', null]; // null = no proxy
+          // Ensure cookies are passed if available
+          const localCookiesPath = path.resolve('.cookies/accounts/default.txt');
+          if (fs.existsSync(localCookiesPath)) {
+            retryWebArgs.push('--cookies', localCookiesPath);
+          } else if (process.env.YOUTUBE_COOKIES_PATH && fs.existsSync(process.env.YOUTUBE_COOKIES_PATH)) {
+            retryWebArgs.push('--cookies', process.env.YOUTUBE_COOKIES_PATH);
+          }
 
-          const executeStrategiesWithProxyRotation = async () => {
-            // Implement rate limiting before executing strategies
-            await youtubeBypass.implementRateLimit();
+          retryWebArgs.push(url);
 
-            // Check and refresh cookies if needed
-            await youtubeBypass.refreshCookiesIfNeeded();
+          const ytDlpPath = await getYtDlpPath();
+          let command, commandArgs;
+          if (ytDlpPath.includes(' ')) {
+            const parts = ytDlpPath.split(' ');
+            command = parts[0];
+            commandArgs = [...parts.slice(1), ...retryWebArgs];
+          } else {
+            command = ytDlpPath;
+            commandArgs = retryWebArgs;
+          }
 
-            // Try YouTube Premium cookies first if available
-            try {
-              console.log('🎵 Attempting YouTube Premium cookie extraction');
-              await youtubeBypass.extractYouTubePremiumCookies();
-            } catch (premiumError) {
-              console.log('ℹ️ YouTube Premium cookies not available, continuing with standard methods');
-              // Try rotating existing cookies as fallback
+          const webRetry = spawn(command, commandArgs);
+          let wOut = '', wErr = '';
+          webRetry.stdout.on('data', d => wOut += d.toString());
+          webRetry.stderr.on('data', d => wErr += d.toString());
+
+          webRetry.on('close', () => {
+            if (wOut.trim()) {
               try {
-                await youtubeBypass.rotateCookies();
-              } catch (rotateError) {
-                console.log('ℹ️ Cookie rotation failed, continuing without rotation');
-              }
+                return res.json(JSON.parse(wOut.trim()));
+              } catch (e) { console.error('Web retry parse error', e); }
             }
-            for (const strategy of strategies) {
-              for (const region of regions) {
-                try {
-                  const result = await tryWithProxyRotation(strategy.name, strategy.args, region);
-                  return res.json(result);
-                } catch (error) {
-                  // Continue to next proxy/strategy combination
-                  await new Promise(resolve => setTimeout(resolve, 1000)); // Brief delay between attempts
-                }
-              }
-            }
-
-            // If all strategies with proxies failed, try browser automation
-            console.log('🤖 All yt-dlp strategies with proxy rotation failed, trying browser automation');
-
-            try {
-              const browserInfo = await youtubeBypass.extractWithBrowser(url);
-              console.log('✅ Browser automation strategy succeeded');
-
-              // Record success for intelligent backoff
-              youtubeBypass.recordSuccess();
-
-              return res.json(browserInfo);
-            } catch (browserError) {
-              console.error('❌ Browser automation failed:', browserError.message);
-
-              // Record failure for intelligent backoff
-              youtubeBypass.recordFailure('browser_automation');
-
-              // Final fallback - CAPTCHA-aware cookie refresh
-              console.log('🍪 Attempting CAPTCHA-aware cookie refresh as last resort');
-              try {
-                await youtubeBypass.refreshCookiesWithCaptchaHandling();
-                console.log('✅ CAPTCHA-aware cookie refresh completed');
-
-                return res.status(500).json({
-                  error: 'Failed to get video information - All bypass methods exhausted',
-                  details: 'YouTube is currently blocking all access methods including browser automation and proxy rotation. This may be due to severe rate limiting or enhanced bot detection.',
-                  suggestion: 'Please try again in 15-30 minutes, or consider using a different video URL.',
-                  bypassAttempts: {
-                    advancedYtDlp: 'failed',
-                    androidTv: 'failed',
-                    webEmbed: 'failed',
-                    minimal: 'failed',
-                    browserAutomation: 'failed',
-                    proxyRotation: 'exhausted',
-                    cookieRefresh: 'completed'
-                  }
-                });
-              } catch (cookieError) {
-                console.error('❌ Cookie refresh failed:', cookieError.message);
-                return res.status(500).json({
-                  error: 'Failed to get video information - Complete bypass failure',
-                  details: 'All bypass methods including browser automation, proxy rotation, and cookie refresh have failed. YouTube access is severely restricted.',
-                  suggestion: 'Please try again later or contact support if this persists.',
-                  bypassAttempts: {
-                    advancedYtDlp: 'failed',
-                    androidTv: 'failed',
-                    webEmbed: 'failed',
-                    minimal: 'failed',
-                    browserAutomation: 'failed',
-                    proxyRotation: 'exhausted',
-                    cookieRefresh: 'failed'
-                  }
-                });
-              }
-            }
-          };
-
-          // Execute the enhanced strategy with proxy rotation
-          executeStrategiesWithProxyRotation().catch(error => {
-            console.error('❌ Unexpected error in proxy rotation system:', error);
-            return res.status(500).json({
-              error: 'Internal error in bypass system',
-              details: error.message
-            });
+            // If web retry fails, return original error
+            return res.status(422).json({ error: 'YouTube Blocked', details: 'Please ensure cookies are fresh.' });
           });
-
-          return; // Exit early to avoid the normal error response
+          return;
         }
+
+
 
         // Log YouTube bot detection errors for debugging
         if (stderr.includes('Sign in to confirm') && (url.includes('youtube.com') || url.includes('youtu.be'))) {
