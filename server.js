@@ -257,879 +257,594 @@ class YouTubeBypassManager {
       ]
     };
   }
-  '--user-agent', 'com.google.android.youtube/1.9 (Linux; U; Android 13) gzip'
-        ]
-},
-{
-  name: 'web_embedded_bypass',
-    args: [
-      '--extractor-args', 'youtube:player_client=web_embedded,web_creator',
-      '--add-header', 'Origin:https://www.youtube.com',
-      '--add-header', 'Referer:https://www.youtube.com/embed/',
-      '--add-header', 'X-YouTube-Client-Name:56'
-    ]
-},
-{
-  name: 'tv_html5_bypass',
-    args: [
-      '--extractor-args', 'youtube:player_client=tv_embedded,web_embedded',
-      '--add-header', 'X-YouTube-Client-Name:85',
-      '--add-header', 'X-YouTube-Client-Version:2.0',
-      '--user-agent', 'Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.0 TV Safari/537.36'
-    ]
-},
-{
-  name: 'mweb_bypass',
-    args: [
-      '--extractor-args', 'youtube:player_client=mweb',
-      '--add-header', 'X-YouTube-Client-Name:2',
-      '--add-header', 'X-YouTube-Client-Version:2.20240304.08.00',
-      '--user-agent', 'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'
-    ]
-}
-    ];
-
-this.clientRotation = (this.clientRotation + 1) % strategies.length;
-return strategies[this.clientRotation];
-  }
 
   // Enhanced cookie extraction with YouTube Premium support
   async extractYouTubePremiumCookies() {
-  let browser = null;
-  try {
-    console.log('🍪 Extracting YouTube Premium cookies...');
+    let browser = null;
+    try {
+      console.log('🍪 Extracting YouTube Premium cookies...');
 
-    browser = await puppeteer.launch({
-      headless: false, // Show browser for login
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-web-security',
-        '--user-data-dir=/tmp/chrome-user-data'
-      ],
-      timeout: 60000
-    });
+      browser = await puppeteer.launch({
+        headless: false, // Show browser for login
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-web-security',
+          '--user-data-dir=/tmp/chrome-user-data'
+        ],
+        timeout: 60000
+      });
 
-    const page = await browser.newPage();
+      const page = await browser.newPage();
 
-    // Set realistic headers
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'DNT': '1'
-    });
+      // Set realistic headers
+      await page.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1'
+      });
 
-    // Navigate to YouTube Premium login
-    await page.goto('https://www.youtube.com/premium', { waitUntil: 'networkidle2' });
+      // Navigate to YouTube Premium login
+      await page.goto('https://www.youtube.com/premium', { waitUntil: 'networkidle2' });
 
-    console.log('Please log in to your YouTube Premium account in the browser window...');
-    console.log('After logging in, the cookies will be automatically extracted.');
+      console.log('Please log in to your YouTube Premium account in the browser window...');
+      console.log('After logging in, the cookies will be automatically extracted.');
 
-    // Wait for login completion (check for Premium indicators)
-    await page.waitForFunction(() => {
-      return document.querySelector('[aria-label*="Premium"]') ||
-        document.querySelector('.ytd-topbar-logo-renderer') ||
-        window.location.href.includes('/feed/subscriptions');
-    }, { timeout: 300000 }); // 5 minutes
+      // Wait for login completion (check for Premium indicators)
+      await page.waitForFunction(() => {
+        return document.querySelector('[aria-label*="Premium"]') ||
+          document.querySelector('.ytd-topbar-logo-renderer') ||
+          window.location.href.includes('/feed/subscriptions');
+      }, { timeout: 300000 }); // 5 minutes
 
-    // Extract all cookies
-    const cookies = await page.cookies();
+      // Extract all cookies
+      const cookies = await page.cookies();
 
-    // Filter for important YouTube cookies
-    const importantCookies = cookies.filter(cookie =>
-      ['VISITOR_INFO1_LIVE', 'YSC', 'PREF', 'CONSENT', 'LOGIN_INFO', 'SID', 'HSID', 'SSID', 'APISID', 'SAPISID'].includes(cookie.name)
-    );
+      // Filter for important YouTube cookies
+      const importantCookies = cookies.filter(cookie =>
+        ['VISITOR_INFO1_LIVE', 'YSC', 'PREF', 'CONSENT', 'LOGIN_INFO', 'SID', 'HSID', 'SSID', 'APISID', 'SAPISID'].includes(cookie.name)
+      );
 
-    // Save cookies in Netscape format
-    const cookieString = cookies.map(cookie =>
-      `${cookie.domain}\t${cookie.httpOnly ? 'TRUE' : 'FALSE'}\t${cookie.path}\t${cookie.secure ? 'TRUE' : 'FALSE'}\t${Math.floor(cookie.expires || Date.now() / 1000 + 86400)}\t${cookie.name}\t${cookie.value}`
-    ).join('\n');
+      // Save cookies in Netscape format
+      const cookieString = cookies.map(cookie =>
+        `${cookie.domain}\t${cookie.httpOnly ? 'TRUE' : 'FALSE'}\t${cookie.path}\t${cookie.secure ? 'TRUE' : 'FALSE'}\t${Math.floor(cookie.expires || Date.now() / 1000 + 86400)}\t${cookie.name}\t${cookie.value}`
+      ).join('\n');
 
-    const cookiesDir = path.join(__dirname, '.cookies');
-    if (!fs.existsSync(cookiesDir)) {
-      fs.mkdirSync(cookiesDir, { recursive: true });
-    }
+      const cookiesDir = path.join(__dirname, '.cookies');
+      if (!fs.existsSync(cookiesDir)) {
+        fs.mkdirSync(cookiesDir, { recursive: true });
+      }
 
-    const cookieFile = path.join(cookiesDir, 'youtube_premium.txt');
-    fs.writeFileSync(cookieFile, cookieString);
+      const cookieFile = path.join(cookiesDir, 'youtube_premium.txt');
+      fs.writeFileSync(cookieFile, cookieString);
 
-    console.log(`✅ Extracted ${cookies.length} cookies (${importantCookies.length} important) to ${cookieFile}`);
+      console.log(`✅ Extracted ${cookies.length} cookies (${importantCookies.length} important) to ${cookieFile}`);
 
-    // Update cookie jar path
-    this.cookieJar = cookieFile;
+      // Update cookie jar path
+      this.cookieJar = cookieFile;
 
-    return cookieFile;
+      return cookieFile;
 
-  } catch (error) {
-    console.error('❌ YouTube Premium cookie extraction failed:', error.message);
-    throw error;
-  } finally {
-    if (browser) {
-      await browser.close();
+    } catch (error) {
+      console.error('❌ YouTube Premium cookie extraction failed:', error.message);
+      throw error;
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
     }
   }
-}
 
   async rotateCookies() {
-  const cookiesDir = path.join(__dirname, '.cookies');
-  const cookieFiles = [
-    'youtube_premium.txt',
-    'youtube_cookies.txt',
-    'youtube_backup.txt'
-  ];
+    const cookiesDir = path.join(__dirname, '.cookies');
+    const cookieFiles = [
+      'youtube_premium.txt',
+      'youtube_cookies.txt',
+      'youtube_backup.txt'
+    ];
 
-  // Find available cookie files
-  const availableCookies = cookieFiles.filter(file => {
-    const filePath = path.join(cookiesDir, file);
-    return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
-  });
+    // Find available cookie files
+    const availableCookies = cookieFiles.filter(file => {
+      const filePath = path.join(cookiesDir, file);
+      return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
+    });
 
-  if (availableCookies.length === 0) {
-    console.log('⚠️ No cookie files available for rotation');
-    return null;
+    if (availableCookies.length === 0) {
+      console.log('⚠️ No cookie files available for rotation');
+      return null;
+    }
+
+    // Rotate to next available cookie file
+    const currentIndex = this.currentCookieIndex || 0;
+    const nextIndex = (currentIndex + 1) % availableCookies.length;
+    this.currentCookieIndex = nextIndex;
+
+    const selectedCookieFile = availableCookies[nextIndex];
+    const selectedCookiePath = path.join(cookiesDir, selectedCookieFile);
+
+    console.log(`🔄 Rotating to cookie file: ${selectedCookieFile}`);
+
+    // Update cookie jar to use rotated cookies
+    this.cookieJar = selectedCookiePath;
+
+    return selectedCookieFile;
   }
-
-  // Rotate to next available cookie file
-  const currentIndex = this.currentCookieIndex || 0;
-  const nextIndex = (currentIndex + 1) % availableCookies.length;
-  this.currentCookieIndex = nextIndex;
-
-  const selectedCookieFile = availableCookies[nextIndex];
-  const selectedCookiePath = path.join(cookiesDir, selectedCookieFile);
-
-  console.log(`🔄 Rotating to cookie file: ${selectedCookieFile}`);
-
-  // Update cookie jar to use rotated cookies
-  this.cookieJar = selectedCookiePath;
-
-  return selectedCookieFile;
-}
 
   async backupCurrentCookies() {
-  const cookiesPath = this.getCookiesPath();
-  if (fs.existsSync(cookiesPath)) {
-    const cookiesDir = path.dirname(cookiesPath);
-    const backupPath = path.join(cookiesDir, 'youtube_backup.txt');
-    fs.copyFileSync(cookiesPath, backupPath);
-    console.log('💾 Current cookies backed up');
-  }
-}
-
-  async refreshCookiesIfNeeded() {
-  const cookiesPath = this.getCookiesPath();
-
-  // Check if cookies are older than 24 hours
-  if (fs.existsSync(cookiesPath)) {
-    const stats = fs.statSync(cookiesPath);
-    const ageInHours = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60);
-
-    if (ageInHours > 24) {
-      console.log('🔄 Cookies are older than 24 hours, attempting refresh');
-      try {
-        await this.backupCurrentCookies();
-        await this.rotateCookies();
-        return true;
-      } catch (error) {
-        console.error('❌ Cookie refresh failed:', error.message);
-        return false;
-      }
+    const cookiesPath = this.getCookiesPath();
+    if (fs.existsSync(cookiesPath)) {
+      const cookiesDir = path.dirname(cookiesPath);
+      const backupPath = path.join(cookiesDir, 'youtube_backup.txt');
+      fs.copyFileSync(cookiesPath, backupPath);
+      console.log('💾 Current cookies backed up');
     }
   }
 
-  return false;
-}
+  async refreshCookiesIfNeeded() {
+    const cookiesPath = this.getCookiesPath();
 
-// Enhanced rotating residential proxy system with multiple providers
-getProxyConfig(preferredRegion = null) {
-  // Multi-provider proxy pool with geographic diversity
-  const proxyProviders = {
-    'brightdata': [
-      process.env.BRIGHTDATA_US_1, process.env.BRIGHTDATA_US_2, process.env.BRIGHTDATA_US_3,
-      process.env.BRIGHTDATA_EU_1, process.env.BRIGHTDATA_EU_2, process.env.BRIGHTDATA_EU_3,
-      process.env.BRIGHTDATA_APAC_1, process.env.BRIGHTDATA_APAC_2, process.env.BRIGHTDATA_APAC_3
-    ].filter(Boolean),
-    'smartproxy': [
-      process.env.SMARTPROXY_US_1, process.env.SMARTPROXY_US_2, process.env.SMARTPROXY_US_3,
-      process.env.SMARTPROXY_EU_1, process.env.SMARTPROXY_EU_2, process.env.SMARTPROXY_EU_3,
-      process.env.SMARTPROXY_APAC_1, process.env.SMARTPROXY_APAC_2, process.env.SMARTPROXY_APAC_3
-    ].filter(Boolean),
-    'oxylabs': [
-      process.env.OXYLABS_US_1, process.env.OXYLABS_US_2, process.env.OXYLABS_US_3,
-      process.env.OXYLABS_EU_1, process.env.OXYLABS_EU_2, process.env.OXYLABS_EU_3,
-      process.env.OXYLABS_APAC_1, process.env.OXYLABS_APAC_2, process.env.OXYLABS_APAC_3
-    ].filter(Boolean),
-    'legacy': [
-      // US proxies
-      process.env.US_PROXY_1, process.env.US_PROXY_2, process.env.US_PROXY_3,
-      // EU proxies
-      process.env.EU_PROXY_1, process.env.EU_PROXY_2, process.env.EU_PROXY_3,
-      // Asia-Pacific proxies
-      process.env.APAC_PROXY_1, process.env.APAC_PROXY_2, process.env.APAC_PROXY_3,
-      // Fallback to basic proxies
-      process.env.HTTP_PROXY, process.env.HTTPS_PROXY, process.env.SOCKS_PROXY
-    ].filter(Boolean)
-  };
+    // Check if cookies are older than 24 hours
+    if (fs.existsSync(cookiesPath)) {
+      const stats = fs.statSync(cookiesPath);
+      const ageInHours = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60);
 
-  // Combine all available proxies
-  const allProxies = Object.values(proxyProviders).flat().filter(Boolean);
-
-  if (allProxies.length === 0) {
-    console.log('No proxies configured, proceeding without proxy');
-    return [];
-  }
-
-  // More aggressive rotation for YouTube: every 2-3 requests or every 90 seconds
-  const now = Date.now();
-  const timeSinceLastRotation = now - (this.lastProxyRotation || 0);
-
-  if (!this.lastProxyRotation ||
-    this.requestCount % (2 + Math.floor(Math.random() * 2)) === 0 ||
-    timeSinceLastRotation > 90000) {
-
-    // Skip failed proxies for 10 minutes
-    let attempts = 0;
-    let selectedProxy;
-
-    do {
-      this.proxyRotation = (this.proxyRotation + 1) % allProxies.length;
-      selectedProxy = allProxies[this.proxyRotation];
-      attempts++;
-
-      const failureKey = selectedProxy;
-      const lastFailure = this.proxyFailures.get(failureKey);
-
-      if (!lastFailure || (now - lastFailure) > 600000) { // 10 minutes
-        break;
+      if (ageInHours > 24) {
+        console.log('🔄 Cookies are older than 24 hours, attempting refresh');
+        try {
+          await this.backupCurrentCookies();
+          await this.rotateCookies();
+          return true;
+        } catch (error) {
+          console.error('❌ Cookie refresh failed:', error.message);
+          return false;
+        }
       }
-    } while (attempts < allProxies.length);
+    }
 
-    this.lastProxyRotation = now;
-
-    // Determine proxy provider for logging
-    const provider = Object.keys(proxyProviders).find(key =>
-      proxyProviders[key].includes(selectedProxy)
-    ) || 'unknown';
-
-    console.log(`🌐 Rotating to ${provider} proxy ${this.proxyRotation + 1}/${allProxies.length}: ${selectedProxy.substring(0, 25)}...`);
+    return false;
   }
 
-  const currentProxy = allProxies[this.proxyRotation];
+  // Enhanced rotating residential proxy system with multiple providers
+  getProxyConfig(preferredRegion = null) {
+    // Multi-provider proxy pool with geographic diversity
+    const proxyProviders = {
+      'brightdata': [
+        process.env.BRIGHTDATA_US_1, process.env.BRIGHTDATA_US_2, process.env.BRIGHTDATA_US_3,
+        process.env.BRIGHTDATA_EU_1, process.env.BRIGHTDATA_EU_2, process.env.BRIGHTDATA_EU_3,
+        process.env.BRIGHTDATA_APAC_1, process.env.BRIGHTDATA_APAC_2, process.env.BRIGHTDATA_APAC_3
+      ].filter(Boolean),
+      'smartproxy': [
+        process.env.SMARTPROXY_US_1, process.env.SMARTPROXY_US_2, process.env.SMARTPROXY_US_3,
+        process.env.SMARTPROXY_EU_1, process.env.SMARTPROXY_EU_2, process.env.SMARTPROXY_EU_3,
+        process.env.SMARTPROXY_APAC_1, process.env.SMARTPROXY_APAC_2, process.env.SMARTPROXY_APAC_3
+      ].filter(Boolean),
+      'oxylabs': [
+        process.env.OXYLABS_US_1, process.env.OXYLABS_US_2, process.env.OXYLABS_US_3,
+        process.env.OXYLABS_EU_1, process.env.OXYLABS_EU_2, process.env.OXYLABS_EU_3,
+        process.env.OXYLABS_APAC_1, process.env.OXYLABS_APAC_2, process.env.OXYLABS_APAC_3
+      ].filter(Boolean),
+      'legacy': [
+        // US proxies
+        process.env.US_PROXY_1, process.env.US_PROXY_2, process.env.US_PROXY_3,
+        // EU proxies
+        process.env.EU_PROXY_1, process.env.EU_PROXY_2, process.env.EU_PROXY_3,
+        // Asia-Pacific proxies
+        process.env.APAC_PROXY_1, process.env.APAC_PROXY_2, process.env.APAC_PROXY_3,
+        // Fallback to basic proxies
+        process.env.HTTP_PROXY, process.env.HTTPS_PROXY, process.env.SOCKS_PROXY
+      ].filter(Boolean)
+    };
 
-  // Enhanced proxy protocol support
-  if (currentProxy.startsWith('socks5://') || currentProxy.startsWith('socks4://')) {
-    return ['--proxy', currentProxy];
-  } else if (currentProxy.startsWith('http://') || currentProxy.startsWith('https://')) {
-    return ['--proxy', currentProxy];
-  } else {
-    // Assume HTTP if no protocol specified
-    return ['--proxy', `http://${currentProxy}`];
+    // Combine all available proxies
+    const allProxies = Object.values(proxyProviders).flat().filter(Boolean);
+
+    if (allProxies.length === 0) {
+      console.log('No proxies configured, proceeding without proxy');
+      return [];
+    }
+
+    // More aggressive rotation for YouTube: every 2-3 requests or every 90 seconds
+    const now = Date.now();
+    const timeSinceLastRotation = now - (this.lastProxyRotation || 0);
+
+    if (!this.lastProxyRotation ||
+      this.requestCount % (2 + Math.floor(Math.random() * 2)) === 0 ||
+      timeSinceLastRotation > 90000) {
+
+      // Skip failed proxies for 10 minutes
+      let attempts = 0;
+      let selectedProxy;
+
+      do {
+        this.proxyRotation = (this.proxyRotation + 1) % allProxies.length;
+        selectedProxy = allProxies[this.proxyRotation];
+        attempts++;
+
+        const failureKey = selectedProxy;
+        const lastFailure = this.proxyFailures.get(failureKey);
+
+        if (!lastFailure || (now - lastFailure) > 600000) { // 10 minutes
+          break;
+        }
+      } while (attempts < allProxies.length);
+
+      this.lastProxyRotation = now;
+
+      // Determine proxy provider for logging
+      const provider = Object.keys(proxyProviders).find(key =>
+        proxyProviders[key].includes(selectedProxy)
+      ) || 'unknown';
+
+      console.log(`🌐 Rotating to ${provider} proxy ${this.proxyRotation + 1}/${allProxies.length}: ${selectedProxy.substring(0, 25)}...`);
+    }
+
+    const currentProxy = allProxies[this.proxyRotation];
+
+    // Enhanced proxy protocol support
+    if (currentProxy.startsWith('socks5://') || currentProxy.startsWith('socks4://')) {
+      return ['--proxy', currentProxy];
+    } else if (currentProxy.startsWith('http://') || currentProxy.startsWith('https://')) {
+      return ['--proxy', currentProxy];
+    } else {
+      // Assume HTTP if no protocol specified
+      return ['--proxy', `http://${currentProxy}`];
+    }
   }
-}
 
-// Mark proxy as failed with exponential backoff
-markProxyFailed(proxyUrl) {
-  const now = Date.now();
-  const failureCount = this.proxyFailures.get(proxyUrl + '_count') || 0;
-  const backoffTime = Math.min(600000, 60000 * Math.pow(2, failureCount)); // Max 10 minutes
+  // Mark proxy as failed with exponential backoff
+  markProxyFailed(proxyUrl) {
+    const now = Date.now();
+    const failureCount = this.proxyFailures.get(proxyUrl + '_count') || 0;
+    const backoffTime = Math.min(600000, 60000 * Math.pow(2, failureCount)); // Max 10 minutes
 
-  this.proxyFailures.set(proxyUrl, now + backoffTime);
-  this.proxyFailures.set(proxyUrl + '_count', failureCount + 1);
+    this.proxyFailures.set(proxyUrl, now + backoffTime);
+    this.proxyFailures.set(proxyUrl + '_count', failureCount + 1);
 
-  console.log(`❌ Marking proxy as failed (attempt ${failureCount + 1}): ${proxyUrl.substring(0, 25)}... (backoff: ${Math.round(backoffTime / 1000)}s)`);
-}
+    console.log(`❌ Marking proxy as failed (attempt ${failureCount + 1}): ${proxyUrl.substring(0, 25)}... (backoff: ${Math.round(backoffTime / 1000)}s)`);
+  }
 
   // Advanced rate limiting with exponential backoff and adaptive throttling
   async implementRateLimit() {
-  const now = Date.now();
-  const timeSinceLastRequest = now - (this.lastRequestTime || 0);
+    const now = Date.now();
+    const timeSinceLastRequest = now - (this.lastRequestTime || 0);
 
-  // Initialize advanced tracking if not exists
-  if (!this.requestHistory) {
-    this.requestHistory = [];
-    this.failureHistory = [];
-    this.successRate = 1.0;
-    this.adaptiveMultiplier = 1.0;
-    this.lastSuccessTime = now;
-  }
+    // Initialize advanced tracking if not exists
+    if (!this.requestHistory) {
+      this.requestHistory = [];
+      this.failureHistory = [];
+      this.successRate = 1.0;
+      this.adaptiveMultiplier = 1.0;
+      this.lastSuccessTime = now;
+    }
 
-  // Clean old data (older than 2 hours for better pattern analysis)
-  const cutoffTime = now - 7200000; // 2 hours
-  this.requestHistory = this.requestHistory.filter(req => req.timestamp > cutoffTime);
-  this.failureHistory = this.failureHistory.filter(fail => fail.timestamp > cutoffTime);
+    // Clean old data (older than 2 hours for better pattern analysis)
+    const cutoffTime = now - 7200000; // 2 hours
+    this.requestHistory = this.requestHistory.filter(req => req.timestamp > cutoffTime);
+    this.failureHistory = this.failureHistory.filter(fail => fail.timestamp > cutoffTime);
 
-  // Calculate success rate over different time windows
-  const windows = {
-    '5min': now - 300000,
-    '15min': now - 900000,
-    '1hour': now - 3600000
-  };
-
-  const windowStats = {};
-  Object.entries(windows).forEach(([window, cutoff]) => {
-    const requests = this.requestHistory.filter(req => req.timestamp > cutoff);
-    const failures = this.failureHistory.filter(fail => fail.timestamp > cutoff);
-    windowStats[window] = {
-      total: requests.length,
-      failures: failures.length,
-      successRate: requests.length > 0 ? (requests.length - failures.length) / requests.length : 1.0
+    // Calculate success rate over different time windows
+    const windows = {
+      '5min': now - 300000,
+      '15min': now - 900000,
+      '1hour': now - 3600000
     };
-  });
 
-  // Advanced exponential backoff calculation
-  let baseDelay = 2000; // 2 seconds base
+    const windowStats = {};
+    Object.entries(windows).forEach(([window, cutoff]) => {
+      const requests = this.requestHistory.filter(req => req.timestamp > cutoff);
+      const failures = this.failureHistory.filter(fail => fail.timestamp > cutoff);
+      windowStats[window] = {
+        total: requests.length,
+        failures: failures.length,
+        successRate: requests.length > 0 ? (requests.length - failures.length) / requests.length : 1.0
+      };
+    });
 
-  // Factor 1: Exponential backoff based on consecutive failures
-  const consecutiveFailures = this.consecutiveFailures || 0;
-  if (consecutiveFailures > 0) {
-    const exponentialDelay = Math.min(
-      baseDelay * Math.pow(2, consecutiveFailures - 1),
-      300000 // Max 5 minutes
-    );
-    baseDelay = Math.max(baseDelay, exponentialDelay);
-  }
+    // Advanced exponential backoff calculation
+    let baseDelay = 2000; // 2 seconds base
 
-  // Factor 2: Adaptive throttling based on success rate
-  const recentSuccessRate = windowStats['15min'].successRate;
-  if (recentSuccessRate < 0.5) {
-    this.adaptiveMultiplier = Math.min(this.adaptiveMultiplier * 1.5, 10.0);
-  } else if (recentSuccessRate > 0.8) {
-    this.adaptiveMultiplier = Math.max(this.adaptiveMultiplier * 0.9, 0.5);
-  }
-  baseDelay *= this.adaptiveMultiplier;
+    // Factor 1: Exponential backoff based on consecutive failures
+    const consecutiveFailures = this.consecutiveFailures || 0;
+    if (consecutiveFailures > 0) {
+      const exponentialDelay = Math.min(
+        baseDelay * Math.pow(2, consecutiveFailures - 1),
+        300000 // Max 5 minutes
+      );
+      baseDelay = Math.max(baseDelay, exponentialDelay);
+    }
 
-  // Factor 3: Request frequency analysis with sliding window
-  const recentRequests = this.requestHistory.filter(req => req.timestamp > now - 600000);
-  if (recentRequests.length > 20) {
-    const frequencyPenalty = Math.pow(1.2, recentRequests.length - 20);
-    baseDelay *= frequencyPenalty;
-  }
+    // Factor 2: Adaptive throttling based on success rate
+    const recentSuccessRate = windowStats['15min'].successRate;
+    if (recentSuccessRate < 0.5) {
+      this.adaptiveMultiplier = Math.min(this.adaptiveMultiplier * 1.5, 10.0);
+    } else if (recentSuccessRate > 0.8) {
+      this.adaptiveMultiplier = Math.max(this.adaptiveMultiplier * 0.9, 0.5);
+    }
+    baseDelay *= this.adaptiveMultiplier;
 
-  // Factor 4: Failure pattern analysis
-  const recentFailures = this.failureHistory.filter(fail => fail.timestamp > now - 900000);
-  const failureTypes = {};
-  recentFailures.forEach(fail => {
-    failureTypes[fail.type] = (failureTypes[fail.type] || 0) + 1;
-  });
+    // Factor 3: Request frequency analysis with sliding window
+    const recentRequests = this.requestHistory.filter(req => req.timestamp > now - 600000);
+    if (recentRequests.length > 20) {
+      const frequencyPenalty = Math.pow(1.2, recentRequests.length - 20);
+      baseDelay *= frequencyPenalty;
+    }
 
-  // Adjust delay based on failure patterns
-  if (failureTypes['rate_limit'] > 3) {
-    baseDelay *= 2.5; // Heavy penalty for rate limiting
-  }
-  if (failureTypes['bot_detection'] > 2) {
-    baseDelay *= 3.0; // Severe penalty for bot detection
-  }
-  if (failureTypes['timeout'] > 5) {
-    baseDelay *= 1.5; // Moderate penalty for timeouts
-  }
+    // Factor 4: Failure pattern analysis
+    const recentFailures = this.failureHistory.filter(fail => fail.timestamp > now - 900000);
+    const failureTypes = {};
+    recentFailures.forEach(fail => {
+      failureTypes[fail.type] = (failureTypes[fail.type] || 0) + 1;
+    });
 
-  // Factor 5: Time-based adaptive scheduling
-  const hour = new Date().getHours();
-  const dayOfWeek = new Date().getDay();
+    // Adjust delay based on failure patterns
+    if (failureTypes['rate_limit'] > 3) {
+      baseDelay *= 2.5; // Heavy penalty for rate limiting
+    }
+    if (failureTypes['bot_detection'] > 2) {
+      baseDelay *= 3.0; // Severe penalty for bot detection
+    }
+    if (failureTypes['timeout'] > 5) {
+      baseDelay *= 1.5; // Moderate penalty for timeouts
+    }
 
-  // Peak hours adjustment (more aggressive)
-  if (hour >= 17 && hour <= 23) { // 5PM-11PM
-    baseDelay *= 1.8;
-  } else if (hour >= 12 && hour <= 16) { // 12PM-4PM
-    baseDelay *= 1.3;
-  } else if (hour >= 2 && hour <= 6) { // 2AM-6AM (optimal)
-    baseDelay *= 0.6;
-  }
+    // Factor 5: Time-based adaptive scheduling
+    const hour = new Date().getHours();
+    const dayOfWeek = new Date().getDay();
 
-  // Weekend adjustment
-  if (dayOfWeek === 0 || dayOfWeek === 6) { // Sunday or Saturday
-    baseDelay *= 1.2;
-  }
+    // Peak hours adjustment (more aggressive)
+    if (hour >= 17 && hour <= 23) { // 5PM-11PM
+      baseDelay *= 1.8;
+    } else if (hour >= 12 && hour <= 16) { // 12PM-4PM
+      baseDelay *= 1.3;
+    } else if (hour >= 2 && hour <= 6) { // 2AM-6AM (optimal)
+      baseDelay *= 0.6;
+    }
 
-  // Factor 6: Circuit breaker with graduated recovery
-  if (this.isCircuitBreakerActive()) {
-    const breakerTime = this.circuitBreakerUntil - now;
-    const recoveryMultiplier = Math.max(2.0, breakerTime / 60000); // 2x to 5x based on remaining time
-    baseDelay = Math.max(baseDelay, 60000 * recoveryMultiplier);
-  }
+    // Weekend adjustment
+    if (dayOfWeek === 0 || dayOfWeek === 6) { // Sunday or Saturday
+      baseDelay *= 1.2;
+    }
 
-  // Factor 7: Intelligent jitter (larger jitter for higher delays)
-  const jitterRange = Math.min(baseDelay * 0.3, 10000); // 30% of delay, max 10s
-  const jitter = (Math.random() - 0.5) * jitterRange;
-  const totalDelay = Math.max(1000, baseDelay + jitter); // Minimum 1s delay
+    // Factor 6: Circuit breaker with graduated recovery
+    if (this.isCircuitBreakerActive()) {
+      const breakerTime = this.circuitBreakerUntil - now;
+      const recoveryMultiplier = Math.max(2.0, breakerTime / 60000); // 2x to 5x based on remaining time
+      baseDelay = Math.max(baseDelay, 60000 * recoveryMultiplier);
+    }
 
-  // Factor 8: Burst protection (prevent rapid successive requests)
-  const burstWindow = 30000; // 30 seconds
-  const burstRequests = this.requestHistory.filter(req => req.timestamp > now - burstWindow);
-  if (burstRequests.length >= 3) {
-    const burstPenalty = Math.pow(1.5, burstRequests.length - 2);
-    const adjustedDelay = totalDelay * burstPenalty;
+    // Factor 7: Intelligent jitter (larger jitter for higher delays)
+    const jitterRange = Math.min(baseDelay * 0.3, 10000); // 30% of delay, max 10s
+    const jitter = (Math.random() - 0.5) * jitterRange;
+    const totalDelay = Math.max(1000, baseDelay + jitter); // Minimum 1s delay
 
-    if (timeSinceLastRequest < adjustedDelay) {
-      const waitTime = adjustedDelay - timeSinceLastRequest;
-      console.log(`🛡️ Burst protection: waiting ${Math.round(waitTime / 1000)}s`);
-      console.log(`   📊 Burst requests: ${burstRequests.length}, penalty: ${burstPenalty.toFixed(2)}x`);
+    // Factor 8: Burst protection (prevent rapid successive requests)
+    const burstWindow = 30000; // 30 seconds
+    const burstRequests = this.requestHistory.filter(req => req.timestamp > now - burstWindow);
+    if (burstRequests.length >= 3) {
+      const burstPenalty = Math.pow(1.5, burstRequests.length - 2);
+      const adjustedDelay = totalDelay * burstPenalty;
+
+      if (timeSinceLastRequest < adjustedDelay) {
+        const waitTime = adjustedDelay - timeSinceLastRequest;
+        console.log(`🛡️ Burst protection: waiting ${Math.round(waitTime / 1000)}s`);
+        console.log(`   📊 Burst requests: ${burstRequests.length}, penalty: ${burstPenalty.toFixed(2)}x`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    } else if (timeSinceLastRequest < totalDelay) {
+      const waitTime = totalDelay - timeSinceLastRequest;
+      console.log(`⏱️ Advanced rate limiting: waiting ${Math.round(waitTime / 1000)}s`);
+      console.log(`   📊 Stats: success=${(recentSuccessRate * 100).toFixed(1)}%, failures=${consecutiveFailures}, adaptive=${this.adaptiveMultiplier.toFixed(2)}x`);
+      console.log(`   🕐 Factors: hour=${hour}, requests=${recentRequests.length}, circuit=${this.isCircuitBreakerActive()}`);
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
-  } else if (timeSinceLastRequest < totalDelay) {
-    const waitTime = totalDelay - timeSinceLastRequest;
-    console.log(`⏱️ Advanced rate limiting: waiting ${Math.round(waitTime / 1000)}s`);
-    console.log(`   📊 Stats: success=${(recentSuccessRate * 100).toFixed(1)}%, failures=${consecutiveFailures}, adaptive=${this.adaptiveMultiplier.toFixed(2)}x`);
-    console.log(`   🕐 Factors: hour=${hour}, requests=${recentRequests.length}, circuit=${this.isCircuitBreakerActive()}`);
-    await new Promise(resolve => setTimeout(resolve, waitTime));
+
+    // Record this request with metadata
+    this.requestHistory.push({
+      timestamp: now,
+      hour: hour,
+      dayOfWeek: dayOfWeek,
+      delay: totalDelay,
+      adaptiveMultiplier: this.adaptiveMultiplier
+    });
+    this.lastRequestTime = now;
   }
 
-  // Record this request with metadata
-  this.requestHistory.push({
-    timestamp: now,
-    hour: hour,
-    dayOfWeek: dayOfWeek,
-    delay: totalDelay,
-    adaptiveMultiplier: this.adaptiveMultiplier
-  });
-  this.lastRequestTime = now;
-}
+  recordSuccess() {
+    const now = Date.now();
+    this.consecutiveFailures = 0;
+    this.lastSuccessTime = now;
 
-recordSuccess() {
-  const now = Date.now();
-  this.consecutiveFailures = 0;
-  this.lastSuccessTime = now;
-
-  // Gradually reduce adaptive multiplier on success
-  if (this.adaptiveMultiplier > 1.0) {
-    this.adaptiveMultiplier = Math.max(this.adaptiveMultiplier * 0.95, 0.8);
-  }
-
-  // Reset circuit breaker if it was active
-  if (this.circuitBreakerUntil && now >= this.circuitBreakerUntil) {
-    console.log('✅ Circuit breaker reset after successful request');
-    this.circuitBreakerUntil = null;
-  }
-
-  console.log(`✅ Request successful - failures reset, adaptive=${this.adaptiveMultiplier.toFixed(2)}x`);
-}
-
-recordFailure(errorType = 'unknown') {
-  const now = Date.now();
-  this.consecutiveFailures = (this.consecutiveFailures || 0) + 1;
-
-  // Initialize failure history if needed
-  if (!this.failureHistory) {
-    this.failureHistory = [];
-  }
-
-  // Record detailed failure information
-  this.failureHistory.push({
-    timestamp: now,
-    type: errorType,
-    consecutiveCount: this.consecutiveFailures,
-    timeSinceLastSuccess: now - (this.lastSuccessTime || now)
-  });
-
-  console.log(`❌ Request failed (${errorType}) - consecutive failures: ${this.consecutiveFailures}`);
-
-  // Advanced circuit breaker with graduated thresholds
-  const timeSinceLastSuccess = now - (this.lastSuccessTime || now);
-  let breakerThreshold = 8; // Default threshold
-
-  // Lower threshold for critical error types
-  if (['bot_detection', 'captcha_required'].includes(errorType)) {
-    breakerThreshold = 5;
-  } else if (['rate_limit', 'forbidden'].includes(errorType)) {
-    breakerThreshold = 6;
-  }
-
-  // Activate circuit breaker with adaptive duration
-  if (this.consecutiveFailures >= breakerThreshold) {
-    let breakerDuration = 3 * 60 * 1000; // Base 3 minutes
-
-    // Increase duration based on failure severity and frequency
-    if (errorType === 'bot_detection') {
-      breakerDuration *= 3; // 9 minutes for bot detection
-    } else if (errorType === 'rate_limit') {
-      breakerDuration *= 2; // 6 minutes for rate limiting
+    // Gradually reduce adaptive multiplier on success
+    if (this.adaptiveMultiplier > 1.0) {
+      this.adaptiveMultiplier = Math.max(this.adaptiveMultiplier * 0.95, 0.8);
     }
 
-    // Increase duration if failures are happening too frequently
-    if (timeSinceLastSuccess < 300000) { // Less than 5 minutes since last success
-      breakerDuration *= 1.5;
+    // Reset circuit breaker if it was active
+    if (this.circuitBreakerUntil && now >= this.circuitBreakerUntil) {
+      console.log('✅ Circuit breaker reset after successful request');
+      this.circuitBreakerUntil = null;
     }
 
-    // Progressive penalty for repeated circuit breaker activations
-    const recentBreakers = this.failureHistory.filter(fail =>
-      fail.timestamp > now - 3600000 && // Last hour
-      fail.consecutiveCount >= breakerThreshold
-    ).length;
+    console.log(`✅ Request successful - failures reset, adaptive=${this.adaptiveMultiplier.toFixed(2)}x`);
+  }
 
-    if (recentBreakers > 1) {
-      breakerDuration *= Math.pow(1.5, recentBreakers - 1);
+  recordFailure(errorType = 'unknown') {
+    const now = Date.now();
+    this.consecutiveFailures = (this.consecutiveFailures || 0) + 1;
+
+    // Initialize failure history if needed
+    if (!this.failureHistory) {
+      this.failureHistory = [];
     }
 
-    this.circuitBreakerUntil = now + Math.min(breakerDuration, 30 * 60 * 1000); // Max 30 minutes
+    // Record detailed failure information
+    this.failureHistory.push({
+      timestamp: now,
+      type: errorType,
+      consecutiveCount: this.consecutiveFailures,
+      timeSinceLastSuccess: now - (this.lastSuccessTime || now)
+    });
 
-    console.log(`🚨 Circuit breaker activated for ${Math.round(breakerDuration / 60000)} minutes`);
-    console.log(`   🔍 Trigger: ${this.consecutiveFailures}/${breakerThreshold} failures, type: ${errorType}`);
-  }
-}
+    console.log(`❌ Request failed (${errorType}) - consecutive failures: ${this.consecutiveFailures}`);
 
-isCircuitBreakerActive() {
-  if (this.circuitBreakerUntil && Date.now() < this.circuitBreakerUntil) {
-    const remainingTime = Math.round((this.circuitBreakerUntil - Date.now()) / 1000);
-    const remainingMinutes = Math.round(remainingTime / 60);
+    // Advanced circuit breaker with graduated thresholds
+    const timeSinceLastSuccess = now - (this.lastSuccessTime || now);
+    let breakerThreshold = 8; // Default threshold
 
-    if (remainingTime % 30 === 0 || remainingTime < 10) { // Log every 30s or final 10s
-      console.log(`🚨 Circuit breaker active: ${remainingMinutes}m ${remainingTime % 60}s remaining`);
+    // Lower threshold for critical error types
+    if (['bot_detection', 'captcha_required'].includes(errorType)) {
+      breakerThreshold = 5;
+    } else if (['rate_limit', 'forbidden'].includes(errorType)) {
+      breakerThreshold = 6;
     }
-    return true;
+
+    // Activate circuit breaker with adaptive duration
+    if (this.consecutiveFailures >= breakerThreshold) {
+      let breakerDuration = 3 * 60 * 1000; // Base 3 minutes
+
+      // Increase duration based on failure severity and frequency
+      if (errorType === 'bot_detection') {
+        breakerDuration *= 3; // 9 minutes for bot detection
+      } else if (errorType === 'rate_limit') {
+        breakerDuration *= 2; // 6 minutes for rate limiting
+      }
+
+      // Increase duration if failures are happening too frequently
+      if (timeSinceLastSuccess < 300000) { // Less than 5 minutes since last success
+        breakerDuration *= 1.5;
+      }
+
+      // Progressive penalty for repeated circuit breaker activations
+      const recentBreakers = this.failureHistory.filter(fail =>
+        fail.timestamp > now - 3600000 && // Last hour
+        fail.consecutiveCount >= breakerThreshold
+      ).length;
+
+      if (recentBreakers > 1) {
+        breakerDuration *= Math.pow(1.5, recentBreakers - 1);
+      }
+
+      this.circuitBreakerUntil = now + Math.min(breakerDuration, 30 * 60 * 1000); // Max 30 minutes
+
+      console.log(`🚨 Circuit breaker activated for ${Math.round(breakerDuration / 60000)} minutes`);
+      console.log(`   🔍 Trigger: ${this.consecutiveFailures}/${breakerThreshold} failures, type: ${errorType}`);
+    }
   }
 
-  // Check for half-open state (allow one test request after breaker expires)
-  if (this.circuitBreakerUntil && Date.now() >= this.circuitBreakerUntil) {
-    console.log('🔄 Circuit breaker entering half-open state - allowing test request');
-    this.circuitBreakerUntil = null; // Reset for test
+  isCircuitBreakerActive() {
+    if (this.circuitBreakerUntil && Date.now() < this.circuitBreakerUntil) {
+      const remainingTime = Math.round((this.circuitBreakerUntil - Date.now()) / 1000);
+      const remainingMinutes = Math.round(remainingTime / 60);
+
+      if (remainingTime % 30 === 0 || remainingTime < 10) { // Log every 30s or final 10s
+        console.log(`🚨 Circuit breaker active: ${remainingMinutes}m ${remainingTime % 60}s remaining`);
+      }
+      return true;
+    }
+
+    // Check for half-open state (allow one test request after breaker expires)
+    if (this.circuitBreakerUntil && Date.now() >= this.circuitBreakerUntil) {
+      console.log('🔄 Circuit breaker entering half-open state - allowing test request');
+      this.circuitBreakerUntil = null; // Reset for test
+    }
+
+    return false;
   }
 
-  return false;
-}
-
-// Get current system performance metrics
-getPerformanceMetrics() {
-  const now = Date.now();
-  const windows = {
-    '5min': now - 300000,
-    '15min': now - 900000,
-    '1hour': now - 3600000
-  };
-
-  const metrics = {};
-  Object.entries(windows).forEach(([window, cutoff]) => {
-    const requests = (this.requestHistory || []).filter(req => req.timestamp > cutoff);
-    const failures = (this.failureHistory || []).filter(fail => fail.timestamp > cutoff);
-
-    metrics[window] = {
-      totalRequests: requests.length,
-      totalFailures: failures.length,
-      successRate: requests.length > 0 ? ((requests.length - failures.length) / requests.length * 100).toFixed(1) + '%' : 'N/A',
-      avgDelay: requests.length > 0 ? Math.round(requests.reduce((sum, req) => sum + (req.delay || 0), 0) / requests.length / 1000) + 's' : 'N/A'
+  // Get current system performance metrics
+  getPerformanceMetrics() {
+    const now = Date.now();
+    const windows = {
+      '5min': now - 300000,
+      '15min': now - 900000,
+      '1hour': now - 3600000
     };
-  });
 
-  return {
-    ...metrics,
-    consecutiveFailures: this.consecutiveFailures || 0,
-    adaptiveMultiplier: (this.adaptiveMultiplier || 1.0).toFixed(2) + 'x',
-    circuitBreakerActive: this.isCircuitBreakerActive(),
-    lastSuccessTime: this.lastSuccessTime ? new Date(this.lastSuccessTime).toISOString() : 'Never'
-  };
-}
+    const metrics = {};
+    Object.entries(windows).forEach(([window, cutoff]) => {
+      const requests = (this.requestHistory || []).filter(req => req.timestamp > cutoff);
+      const failures = (this.failureHistory || []).filter(fail => fail.timestamp > cutoff);
+
+      metrics[window] = {
+        totalRequests: requests.length,
+        totalFailures: failures.length,
+        successRate: requests.length > 0 ? ((requests.length - failures.length) / requests.length * 100).toFixed(1) + '%' : 'N/A',
+        avgDelay: requests.length > 0 ? Math.round(requests.reduce((sum, req) => sum + (req.delay || 0), 0) / requests.length / 1000) + 's' : 'N/A'
+      };
+    });
+
+    return {
+      ...metrics,
+      consecutiveFailures: this.consecutiveFailures || 0,
+      adaptiveMultiplier: (this.adaptiveMultiplier || 1.0).toFixed(2) + 'x',
+      circuitBreakerActive: this.isCircuitBreakerActive(),
+      lastSuccessTime: this.lastSuccessTime ? new Date(this.lastSuccessTime).toISOString() : 'Never'
+    };
+  }
 
   // CAPTCHA solving integration for automated cookie refresh
   async solveCaptcha(captchaImageUrl, captchaType = 'image') {
-  const captchaApiKey = process.env.CAPTCHA_API_KEY || process.env.TWOCAPTCHA_API_KEY;
+    const captchaApiKey = process.env.CAPTCHA_API_KEY || process.env.TWOCAPTCHA_API_KEY;
 
-  if (!captchaApiKey) {
-    console.log('⚠️ No CAPTCHA API key found, skipping CAPTCHA solving');
-    throw new Error('CAPTCHA API key not configured');
-  }
-
-  try {
-    console.log('🧩 Attempting to solve CAPTCHA...');
-
-    // Using 2captcha service (can be adapted for other services)
-    const submitResponse = await fetch('http://2captcha.com/in.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        key: captchaApiKey,
-        method: 'base64',
-        body: captchaImageUrl.startsWith('data:') ? captchaImageUrl.split(',')[1] : captchaImageUrl,
-        json: 1
-      })
-    });
-
-    const submitResult = await submitResponse.json();
-
-    if (submitResult.status !== 1) {
-      throw new Error(`CAPTCHA submission failed: ${submitResult.error_text}`);
+    if (!captchaApiKey) {
+      console.log('⚠️ No CAPTCHA API key found, skipping CAPTCHA solving');
+      throw new Error('CAPTCHA API key not configured');
     }
 
-    const captchaId = submitResult.request;
-    console.log(`🧩 CAPTCHA submitted with ID: ${captchaId}`);
+    try {
+      console.log('🧩 Attempting to solve CAPTCHA...');
 
-    // Poll for result (wait up to 2 minutes)
-    for (let i = 0; i < 24; i++) {
-      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+      // Using 2captcha service (can be adapted for other services)
+      const submitResponse = await fetch('http://2captcha.com/in.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          key: captchaApiKey,
+          method: 'base64',
+          body: captchaImageUrl.startsWith('data:') ? captchaImageUrl.split(',')[1] : captchaImageUrl,
+          json: 1
+        })
+      });
 
-      const resultResponse = await fetch(`http://2captcha.com/res.php?key=${captchaApiKey}&action=get&id=${captchaId}&json=1`);
-      const result = await resultResponse.json();
+      const submitResult = await submitResponse.json();
 
-      if (result.status === 1) {
-        console.log('✅ CAPTCHA solved successfully');
-        return result.request; // The solved CAPTCHA text
-      } else if (result.error_text && result.error_text !== 'CAPCHA_NOT_READY') {
-        throw new Error(`CAPTCHA solving failed: ${result.error_text}`);
+      if (submitResult.status !== 1) {
+        throw new Error(`CAPTCHA submission failed: ${submitResult.error_text}`);
       }
 
-      console.log(`🧩 CAPTCHA not ready yet, waiting... (attempt ${i + 1}/24)`);
+      const captchaId = submitResult.request;
+      console.log(`🧩 CAPTCHA submitted with ID: ${captchaId}`);
+
+      // Poll for result (wait up to 2 minutes)
+      for (let i = 0; i < 24; i++) {
+        await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+
+        const resultResponse = await fetch(`http://2captcha.com/res.php?key=${captchaApiKey}&action=get&id=${captchaId}&json=1`);
+        const result = await resultResponse.json();
+
+        if (result.status === 1) {
+          console.log('✅ CAPTCHA solved successfully');
+          return result.request; // The solved CAPTCHA text
+        } else if (result.error_text && result.error_text !== 'CAPCHA_NOT_READY') {
+          throw new Error(`CAPTCHA solving failed: ${result.error_text}`);
+        }
+
+        console.log(`🧩 CAPTCHA not ready yet, waiting... (attempt ${i + 1}/24)`);
+      }
+
+      throw new Error('CAPTCHA solving timeout');
+
+    } catch (error) {
+      console.error('❌ CAPTCHA solving error:', error.message);
+      throw error;
     }
-
-    throw new Error('CAPTCHA solving timeout');
-
-  } catch (error) {
-    console.error('❌ CAPTCHA solving error:', error.message);
-    throw error;
   }
-}
 
   // Enhanced cookie extraction with CAPTCHA handling
   async extractCookiesWithCaptchaSolving(url) {
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
-      '--disable-gpu'
-    ]
-  });
-
-  try {
-    const page = await browser.newPage();
-
-    // Set realistic user agent and viewport
-    await page.setUserAgent(this.getAdvancedUserAgent().desktop.chrome);
-    await page.setViewport({ width: 1920, height: 1080 });
-
-    console.log('🍪 Navigating to YouTube for cookie extraction with CAPTCHA handling...');
-    await page.goto('https://www.youtube.com', { waitUntil: 'networkidle2', timeout: 30000 });
-
-    // Check for CAPTCHA presence
-    const captchaDetected = await page.evaluate(() => {
-      // Common CAPTCHA selectors
-      const captchaSelectors = [
-        '[src*="captcha"]',
-        '[src*="recaptcha"]',
-        '.g-recaptcha',
-        '#captcha',
-        '.captcha-container',
-        '[data-callback*="captcha"]'
-      ];
-
-      return captchaSelectors.some(selector => document.querySelector(selector));
-    });
-
-    if (captchaDetected) {
-      console.log('🧩 CAPTCHA detected, attempting to solve...');
-
-      try {
-        // Extract CAPTCHA image
-        const captchaImage = await page.evaluate(() => {
-          const img = document.querySelector('[src*="captcha"], [src*="recaptcha"]');
-          return img ? img.src : null;
-        });
-
-        if (captchaImage) {
-          const captchaSolution = await this.solveCaptcha(captchaImage);
-
-          // Input CAPTCHA solution
-          const captchaInput = await page.$('input[name*="captcha"], input[id*="captcha"], input[type="text"]');
-          if (captchaInput) {
-            await captchaInput.type(captchaSolution);
-
-            // Submit CAPTCHA
-            const submitButton = await page.$('button[type="submit"], input[type="submit"], button:contains("Submit")');
-            if (submitButton) {
-              await submitButton.click();
-              await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 });
-              console.log('✅ CAPTCHA submitted successfully');
-            }
-          }
-        }
-      } catch (captchaError) {
-        console.log('⚠️ CAPTCHA solving failed, continuing without solving:', captchaError.message);
-      }
-    }
-
-    // Continue with normal cookie extraction
-    await page.waitForTimeout(3000);
-
-    // Extract cookies
-    const cookies = await page.cookies();
-    const youtubeCookies = cookies.filter(cookie =>
-      cookie.domain.includes('youtube.com') || cookie.domain.includes('google.com')
-    );
-
-    if (youtubeCookies.length > 0) {
-      // Save cookies in Netscape format
-      const cookiesPath = this.getCookiesPath();
-      const netscapeCookies = youtubeCookies.map(cookie => {
-        const domain = cookie.domain.startsWith('.') ? cookie.domain : `.${cookie.domain}`;
-        const flag = cookie.httpOnly ? 'TRUE' : 'FALSE';
-        const path = cookie.path || '/';
-        const secure = cookie.secure ? 'TRUE' : 'FALSE';
-        const expiration = cookie.expires ? Math.floor(cookie.expires) : '0';
-        return `${domain}\t${flag}\t${path}\t${secure}\t${expiration}\t${cookie.name}\t${cookie.value}`;
-      }).join('\n');
-
-      await fs.writeFile(cookiesPath, `# Netscape HTTP Cookie File\n${netscapeCookies}`, 'utf8');
-      console.log(`✅ Extracted ${youtubeCookies.length} cookies with CAPTCHA handling to ${cookiesPath}`);
-
-      return youtubeCookies;
-    } else {
-      throw new Error('No YouTube cookies found after CAPTCHA solving');
-    }
-
-  } finally {
-    await browser.close();
-  }
-}
-
-  // Automatic CAPTCHA-aware cookie refresh
-  async refreshCookiesWithCaptchaHandling() {
-  try {
-    console.log('🔄 Starting automatic cookie refresh with CAPTCHA handling...');
-
-    // First try normal extraction
-    try {
-      await this.extractYouTubePremiumCookies();
-      console.log('✅ Cookie refresh completed without CAPTCHA');
-      return;
-    } catch (normalError) {
-      console.log('ℹ️ Normal cookie extraction failed, trying with CAPTCHA handling...');
-    }
-
-    // If normal extraction fails, try with CAPTCHA solving
-    await this.extractCookiesWithCaptchaSolving('https://www.youtube.com');
-    console.log('✅ Cookie refresh completed with CAPTCHA handling');
-
-  } catch (error) {
-    console.error('❌ Cookie refresh with CAPTCHA handling failed:', error.message);
-    throw error;
-  }
-}
-
-  // Proxy health check and failover
-  async checkProxyHealth(proxyUrl) {
-  try {
-    const testUrl = 'https://httpbin.org/ip';
-    const response = await fetch(testUrl, {
-      method: 'GET',
-      timeout: 10000,
-      agent: this.createProxyAgent(proxyUrl)
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      console.log(`✅ Proxy health check passed: ${proxyUrl} -> IP: ${data.origin}`);
-      return true;
-    }
-  } catch (error) {
-    console.log(`❌ Proxy health check failed: ${proxyUrl} -> ${error.message}`);
-  }
-  return false;
-}
-
-// Create proxy agent for different protocols
-createProxyAgent(proxyUrl) {
-  // This would require additional proxy agent libraries
-  // For now, return null and let yt-dlp handle proxy configuration
-  return null;
-}
-
-// Geographic proxy selection for specific regions
-getGeoSpecificProxy(region = 'random') {
-  const geoProxies = {
-    'us': [
-      process.env.US_PROXY_1,
-      process.env.US_PROXY_2,
-      process.env.US_PROXY_3
-    ].filter(Boolean),
-    'eu': [
-      process.env.EU_PROXY_1,
-      process.env.EU_PROXY_2,
-      process.env.EU_PROXY_3
-    ].filter(Boolean),
-    'apac': [
-      process.env.APAC_PROXY_1,
-      process.env.APAC_PROXY_2,
-      process.env.APAC_PROXY_3
-    ].filter(Boolean)
-  };
-
-  if (region === 'random') {
-    const regions = Object.keys(geoProxies).filter(r => geoProxies[r].length > 0);
-    if (regions.length === 0) return [];
-    region = regions[Math.floor(Math.random() * regions.length)];
-  }
-
-  const regionProxies = geoProxies[region] || [];
-  if (regionProxies.length === 0) return [];
-
-  const selectedProxy = regionProxies[Math.floor(Math.random() * regionProxies.length)];
-  console.log(`🌍 Using ${region.toUpperCase()} proxy: ${selectedProxy.substring(0, 20)}...`);
-
-  return ['--proxy', selectedProxy];
-}
-
-// Session persistence and caching
-getSessionArgs(url) {
-  const urlHash = crypto.createHash('md5').update(url).digest('hex');
-  const sessionKey = `session_${urlHash}`;
-
-  if (this.sessionCache.has(sessionKey)) {
-    const session = this.sessionCache.get(sessionKey);
-    if (Date.now() - session.timestamp < 300000) { // 5 minutes
-      return session.args;
-    }
-  }
-
-  const fingerprint = this.generateRequestFingerprint();
-  const browser = this.getAdvancedUserAgent();
-  const strategy = this.getClientStrategy();
-  const proxy = this.getProxyConfig();
-
-  const sessionArgs = [
-    '--user-agent', browser.ua,
-    '--add-header', 'Accept-Language:en-US,en;q=0.9,es;q=0.8',
-    '--add-header', 'Accept-Encoding:gzip, deflate, br, zstd',
-    '--add-header', 'DNT:1',
-    '--add-header', 'Upgrade-Insecure-Requests:1',
-    '--add-header', 'Sec-Fetch-Dest:document',
-    '--add-header', 'Sec-Fetch-Mode:navigate',
-    '--add-header', 'Sec-Fetch-Site:none',
-    '--add-header', 'Sec-Fetch-User:?1',
-    ...strategy.args,
-    ...proxy
-  ];
-
-  // Add browser-specific headers
-  Object.entries(browser.headers || {}).forEach(([key, value]) => {
-    sessionArgs.push('--add-header', `${key}:${value}`);
-  });
-
-  this.sessionCache.set(sessionKey, {
-    args: sessionArgs,
-    timestamp: Date.now(),
-    strategy: strategy.name,
-    fingerprint
-  });
-
-  return sessionArgs;
-}
-
-  // Adaptive delay based on request history
-  async addAdaptiveDelay() {
-  const fingerprint = this.generateRequestFingerprint();
-  await new Promise(resolve => setTimeout(resolve, fingerprint.delay));
-  return fingerprint;
-}
-
-  // Browser automation fallback using Puppeteer
-  async extractWithBrowser(url) {
-  let browser = null;
-  try {
-    console.log('Attempting browser automation extraction for:', url);
-
-    browser = await puppeteer.launch({
-      headless: 'new',
+    const browser = await puppeteer.launch({
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -1137,141 +852,391 @@ getSessionArgs(url) {
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--disable-gpu',
-        '--disable-web-security',
-        '--disable-features=VizDisplayCompositor',
-        '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-      ],
-      timeout: 30000
+        '--disable-gpu'
+      ]
     });
 
-    const page = await browser.newPage();
+    try {
+      const page = await browser.newPage();
 
-    // Set realistic viewport and headers
-    await page.setViewport({ width: 1920, height: 1080 });
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'DNT': '1',
-      'Upgrade-Insecure-Requests': '1'
-    });
+      // Set realistic user agent and viewport
+      await page.setUserAgent(this.getAdvancedUserAgent().desktop.chrome);
+      await page.setViewport({ width: 1920, height: 1080 });
 
-    // Navigate to YouTube video
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+      console.log('🍪 Navigating to YouTube for cookie extraction with CAPTCHA handling...');
+      await page.goto('https://www.youtube.com', { waitUntil: 'networkidle2', timeout: 30000 });
 
-    // Wait for video player to load
-    await page.waitForSelector('video', { timeout: 15000 });
+      // Check for CAPTCHA presence
+      const captchaDetected = await page.evaluate(() => {
+        // Common CAPTCHA selectors
+        const captchaSelectors = [
+          '[src*="captcha"]',
+          '[src*="recaptcha"]',
+          '.g-recaptcha',
+          '#captcha',
+          '.captcha-container',
+          '[data-callback*="captcha"]'
+        ];
 
-    // Extract video information
-    const videoInfo = await page.evaluate(() => {
-      const video = document.querySelector('video');
-      const titleElement = document.querySelector('h1.ytd-watch-metadata yt-formatted-string, h1.title');
-      const uploaderElement = document.querySelector('#owner-name a, .ytd-channel-name a');
-      const descriptionElement = document.querySelector('#description-text, .description');
-      const viewCountElement = document.querySelector('#info-text, .view-count');
+        return captchaSelectors.some(selector => document.querySelector(selector));
+      });
 
-      return {
-        title: titleElement?.textContent?.trim() || 'Unknown Title',
-        duration: video?.duration || 0,
-        durationString: video?.duration ? new Date(video.duration * 1000).toISOString().substr(11, 8) : '0:00',
-        uploader: uploaderElement?.textContent?.trim() || 'Unknown',
-        description: descriptionElement?.textContent?.trim() || '',
-        viewCount: viewCountElement?.textContent?.trim() || '0',
-        thumbnail: video?.poster || '',
-        platform: 'YouTube'
-      };
-    });
+      if (captchaDetected) {
+        console.log('🧩 CAPTCHA detected, attempting to solve...');
 
-    console.log('Browser automation extraction successful');
-    return videoInfo;
+        try {
+          // Extract CAPTCHA image
+          const captchaImage = await page.evaluate(() => {
+            const img = document.querySelector('[src*="captcha"], [src*="recaptcha"]');
+            return img ? img.src : null;
+          });
 
-  } catch (error) {
-    console.error('Browser automation failed:', error.message);
-    throw error;
-  } finally {
-    if (browser) {
+          if (captchaImage) {
+            const captchaSolution = await this.solveCaptcha(captchaImage);
+
+            // Input CAPTCHA solution
+            const captchaInput = await page.$('input[name*="captcha"], input[id*="captcha"], input[type="text"]');
+            if (captchaInput) {
+              await captchaInput.type(captchaSolution);
+
+              // Submit CAPTCHA
+              const submitButton = await page.$('button[type="submit"], input[type="submit"], button:contains("Submit")');
+              if (submitButton) {
+                await submitButton.click();
+                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 });
+                console.log('✅ CAPTCHA submitted successfully');
+              }
+            }
+          }
+        } catch (captchaError) {
+          console.log('⚠️ CAPTCHA solving failed, continuing without solving:', captchaError.message);
+        }
+      }
+
+      // Continue with normal cookie extraction
+      await page.waitForTimeout(3000);
+
+      // Extract cookies
+      const cookies = await page.cookies();
+      const youtubeCookies = cookies.filter(cookie =>
+        cookie.domain.includes('youtube.com') || cookie.domain.includes('google.com')
+      );
+
+      if (youtubeCookies.length > 0) {
+        // Save cookies in Netscape format
+        const cookiesPath = this.getCookiesPath();
+        const netscapeCookies = youtubeCookies.map(cookie => {
+          const domain = cookie.domain.startsWith('.') ? cookie.domain : `.${cookie.domain}`;
+          const flag = cookie.httpOnly ? 'TRUE' : 'FALSE';
+          const path = cookie.path || '/';
+          const secure = cookie.secure ? 'TRUE' : 'FALSE';
+          const expiration = cookie.expires ? Math.floor(cookie.expires) : '0';
+          return `${domain}\t${flag}\t${path}\t${secure}\t${expiration}\t${cookie.name}\t${cookie.value}`;
+        }).join('\n');
+
+        await fs.writeFile(cookiesPath, `# Netscape HTTP Cookie File\n${netscapeCookies}`, 'utf8');
+        console.log(`✅ Extracted ${youtubeCookies.length} cookies with CAPTCHA handling to ${cookiesPath}`);
+
+        return youtubeCookies;
+      } else {
+        throw new Error('No YouTube cookies found after CAPTCHA solving');
+      }
+
+    } finally {
       await browser.close();
     }
   }
-}
+
+  // Automatic CAPTCHA-aware cookie refresh
+  async refreshCookiesWithCaptchaHandling() {
+    try {
+      console.log('🔄 Starting automatic cookie refresh with CAPTCHA handling...');
+
+      // First try normal extraction
+      try {
+        await this.extractYouTubePremiumCookies();
+        console.log('✅ Cookie refresh completed without CAPTCHA');
+        return;
+      } catch (normalError) {
+        console.log('ℹ️ Normal cookie extraction failed, trying with CAPTCHA handling...');
+      }
+
+      // If normal extraction fails, try with CAPTCHA solving
+      await this.extractCookiesWithCaptchaSolving('https://www.youtube.com');
+      console.log('✅ Cookie refresh completed with CAPTCHA handling');
+
+    } catch (error) {
+      console.error('❌ Cookie refresh with CAPTCHA handling failed:', error.message);
+      throw error;
+    }
+  }
+
+  // Proxy health check and failover
+  async checkProxyHealth(proxyUrl) {
+    try {
+      const testUrl = 'https://httpbin.org/ip';
+      const response = await fetch(testUrl, {
+        method: 'GET',
+        timeout: 10000,
+        agent: this.createProxyAgent(proxyUrl)
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`✅ Proxy health check passed: ${proxyUrl} -> IP: ${data.origin}`);
+        return true;
+      }
+    } catch (error) {
+      console.log(`❌ Proxy health check failed: ${proxyUrl} -> ${error.message}`);
+    }
+    return false;
+  }
+
+  // Create proxy agent for different protocols
+  createProxyAgent(proxyUrl) {
+    // This would require additional proxy agent libraries
+    // For now, return null and let yt-dlp handle proxy configuration
+    return null;
+  }
+
+  // Geographic proxy selection for specific regions
+  getGeoSpecificProxy(region = 'random') {
+    const geoProxies = {
+      'us': [
+        process.env.US_PROXY_1,
+        process.env.US_PROXY_2,
+        process.env.US_PROXY_3
+      ].filter(Boolean),
+      'eu': [
+        process.env.EU_PROXY_1,
+        process.env.EU_PROXY_2,
+        process.env.EU_PROXY_3
+      ].filter(Boolean),
+      'apac': [
+        process.env.APAC_PROXY_1,
+        process.env.APAC_PROXY_2,
+        process.env.APAC_PROXY_3
+      ].filter(Boolean)
+    };
+
+    if (region === 'random') {
+      const regions = Object.keys(geoProxies).filter(r => geoProxies[r].length > 0);
+      if (regions.length === 0) return [];
+      region = regions[Math.floor(Math.random() * regions.length)];
+    }
+
+    const regionProxies = geoProxies[region] || [];
+    if (regionProxies.length === 0) return [];
+
+    const selectedProxy = regionProxies[Math.floor(Math.random() * regionProxies.length)];
+    console.log(`🌍 Using ${region.toUpperCase()} proxy: ${selectedProxy.substring(0, 20)}...`);
+
+    return ['--proxy', selectedProxy];
+  }
+
+  // Session persistence and caching
+  getSessionArgs(url) {
+    const urlHash = crypto.createHash('md5').update(url).digest('hex');
+    const sessionKey = `session_${urlHash}`;
+
+    if (this.sessionCache.has(sessionKey)) {
+      const session = this.sessionCache.get(sessionKey);
+      if (Date.now() - session.timestamp < 300000) { // 5 minutes
+        return session.args;
+      }
+    }
+
+    const fingerprint = this.generateRequestFingerprint();
+    const browser = this.getAdvancedUserAgent();
+    const strategy = this.getClientStrategy();
+    const proxy = this.getProxyConfig();
+
+    const sessionArgs = [
+      '--user-agent', browser.ua,
+      '--add-header', 'Accept-Language:en-US,en;q=0.9,es;q=0.8',
+      '--add-header', 'Accept-Encoding:gzip, deflate, br, zstd',
+      '--add-header', 'DNT:1',
+      '--add-header', 'Upgrade-Insecure-Requests:1',
+      '--add-header', 'Sec-Fetch-Dest:document',
+      '--add-header', 'Sec-Fetch-Mode:navigate',
+      '--add-header', 'Sec-Fetch-Site:none',
+      '--add-header', 'Sec-Fetch-User:?1',
+      ...strategy.args,
+      ...proxy
+    ];
+
+    // Add browser-specific headers
+    Object.entries(browser.headers || {}).forEach(([key, value]) => {
+      sessionArgs.push('--add-header', `${key}:${value}`);
+    });
+
+    this.sessionCache.set(sessionKey, {
+      args: sessionArgs,
+      timestamp: Date.now(),
+      strategy: strategy.name,
+      fingerprint
+    });
+
+    return sessionArgs;
+  }
+
+  // Adaptive delay based on request history
+  async addAdaptiveDelay() {
+    const fingerprint = this.generateRequestFingerprint();
+    await new Promise(resolve => setTimeout(resolve, fingerprint.delay));
+    return fingerprint;
+  }
+
+  // Browser automation fallback using Puppeteer
+  async extractWithBrowser(url) {
+    let browser = null;
+    try {
+      console.log('Attempting browser automation extraction for:', url);
+
+      browser = await puppeteer.launch({
+        headless: 'new',
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu',
+          '--disable-web-security',
+          '--disable-features=VizDisplayCompositor',
+          '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+        ],
+        timeout: 30000
+      });
+
+      const page = await browser.newPage();
+
+      // Set realistic viewport and headers
+      await page.setViewport({ width: 1920, height: 1080 });
+      await page.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Upgrade-Insecure-Requests': '1'
+      });
+
+      // Navigate to YouTube video
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+
+      // Wait for video player to load
+      await page.waitForSelector('video', { timeout: 15000 });
+
+      // Extract video information
+      const videoInfo = await page.evaluate(() => {
+        const video = document.querySelector('video');
+        const titleElement = document.querySelector('h1.ytd-watch-metadata yt-formatted-string, h1.title');
+        const uploaderElement = document.querySelector('#owner-name a, .ytd-channel-name a');
+        const descriptionElement = document.querySelector('#description-text, .description');
+        const viewCountElement = document.querySelector('#info-text, .view-count');
+
+        return {
+          title: titleElement?.textContent?.trim() || 'Unknown Title',
+          duration: video?.duration || 0,
+          durationString: video?.duration ? new Date(video.duration * 1000).toISOString().substr(11, 8) : '0:00',
+          uploader: uploaderElement?.textContent?.trim() || 'Unknown',
+          description: descriptionElement?.textContent?.trim() || '',
+          viewCount: viewCountElement?.textContent?.trim() || '0',
+          thumbnail: video?.poster || '',
+          platform: 'YouTube'
+        };
+      });
+
+      console.log('Browser automation extraction successful');
+      return videoInfo;
+
+    } catch (error) {
+      console.error('Browser automation failed:', error.message);
+      throw error;
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
+    }
+  }
 
   // Enhanced cookie extraction from browser session
   async extractAndSaveCookies(url) {
-  let browser = null;
-  try {
-    console.log('Extracting fresh cookies from browser session');
+    let browser = null;
+    try {
+      console.log('Extracting fresh cookies from browser session');
 
-    browser = await puppeteer.launch({
-      headless: false, // Show browser for cookie consent
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      timeout: 30000
-    });
+      browser = await puppeteer.launch({
+        headless: false, // Show browser for cookie consent
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        timeout: 30000
+      });
 
-    const page = await browser.newPage();
-    await page.goto('https://www.youtube.com', { waitUntil: 'networkidle2' });
+      const page = await browser.newPage();
+      await page.goto('https://www.youtube.com', { waitUntil: 'networkidle2' });
 
-    // Wait for user to handle any cookie consent or login
-    console.log('Waiting 10 seconds for cookie consent/login...');
-    await new Promise(resolve => setTimeout(resolve, 10000));
+      // Wait for user to handle any cookie consent or login
+      console.log('Waiting 10 seconds for cookie consent/login...');
+      await new Promise(resolve => setTimeout(resolve, 10000));
 
-    // Extract cookies
-    const cookies = await page.cookies();
+      // Extract cookies
+      const cookies = await page.cookies();
 
-    // Ensure cookie directory exists
-    const jarDir = path.dirname(this.cookieJar);
-    if (!fs.existsSync(jarDir)) {
-      fs.mkdirSync(jarDir, { recursive: true });
-    }
+      // Ensure cookie directory exists
+      const jarDir = path.dirname(this.cookieJar);
+      if (!fs.existsSync(jarDir)) {
+        fs.mkdirSync(jarDir, { recursive: true });
+      }
 
-    // Save cookies in valid Netscape/Mozilla format expected by yt-dlp
-    // Format: domain \t include_subdomains \t path \t secure \t expires(epoch) \t name \t value
-    // Include header recognized by Python's MozillaCookieJar
-    const header = [
-      '# Netscape HTTP Cookie File',
-      '# This file was generated by YouTubeBypassManager',
-      '# Format: <domain> <flag> <path> <secure> <expiration> <name> <value>'
-    ].join('\n');
+      // Save cookies in valid Netscape/Mozilla format expected by yt-dlp
+      // Format: domain \t include_subdomains \t path \t secure \t expires(epoch) \t name \t value
+      // Include header recognized by Python's MozillaCookieJar
+      const header = [
+        '# Netscape HTTP Cookie File',
+        '# This file was generated by YouTubeBypassManager',
+        '# Format: <domain> <flag> <path> <secure> <expiration> <name> <value>'
+      ].join('\n');
 
-    const lines = cookies.map(cookie => {
-      // Host-only cookies should have include_subdomains = FALSE and domain without leading dot
-      const isHostOnly = !cookie.domain.startsWith('.');
-      const includeSubdomains = isHostOnly ? 'FALSE' : 'TRUE';
+      const lines = cookies.map(cookie => {
+        // Host-only cookies should have include_subdomains = FALSE and domain without leading dot
+        const isHostOnly = !cookie.domain.startsWith('.');
+        const includeSubdomains = isHostOnly ? 'FALSE' : 'TRUE';
 
-      // Ensure domain formatting: leading dot only when include_subdomains is TRUE
-      const domain = isHostOnly ? cookie.domain.replace(/^\./, '') : (cookie.domain.startsWith('.') ? cookie.domain : `.${cookie.domain}`);
+        // Ensure domain formatting: leading dot only when include_subdomains is TRUE
+        const domain = isHostOnly ? cookie.domain.replace(/^\./, '') : (cookie.domain.startsWith('.') ? cookie.domain : `.${cookie.domain}`);
 
-      // Path default
-      const pathVal = cookie.path || '/';
+        // Path default
+        const pathVal = cookie.path || '/';
 
-      // Secure flag
-      const secure = cookie.secure ? 'TRUE' : 'FALSE';
+        // Secure flag
+        const secure = cookie.secure ? 'TRUE' : 'FALSE';
 
-      // Expiration: Puppeteer uses seconds; -1 indicates session cookie. Use 1 year for session cookies.
-      const expiresRaw = typeof cookie.expires === 'number' ? cookie.expires : -1;
-      const expires = (expiresRaw && expiresRaw > 0) ? Math.floor(expiresRaw) : Math.floor(Date.now() / 1000) + 365 * 24 * 3600;
+        // Expiration: Puppeteer uses seconds; -1 indicates session cookie. Use 1 year for session cookies.
+        const expiresRaw = typeof cookie.expires === 'number' ? cookie.expires : -1;
+        const expires = (expiresRaw && expiresRaw > 0) ? Math.floor(expiresRaw) : Math.floor(Date.now() / 1000) + 365 * 24 * 3600;
 
-      return `${domain}\t${includeSubdomains}\t${pathVal}\t${secure}\t${expires}\t${cookie.name}\t${cookie.value}`;
-    });
+        return `${domain}\t${includeSubdomains}\t${pathVal}\t${secure}\t${expires}\t${cookie.name}\t${cookie.value}`;
+      });
 
-    const cookieFile = `${header}\n\n${lines.join('\n')}`;
-    fs.writeFileSync(this.cookieJar, cookieFile);
-    // Validate write
-    const stats = fs.statSync(this.cookieJar);
-    if (!stats || stats.size === 0) {
-      throw new Error('Cookie jar file is empty after write');
-    }
-    console.log('Cookies saved successfully');
+      const cookieFile = `${header}\n\n${lines.join('\n')}`;
+      fs.writeFileSync(this.cookieJar, cookieFile);
+      // Validate write
+      const stats = fs.statSync(this.cookieJar);
+      if (!stats || stats.size === 0) {
+        throw new Error('Cookie jar file is empty after write');
+      }
+      console.log('Cookies saved successfully');
 
-  } catch (error) {
-    console.error('Cookie extraction failed:', error.message);
-    // Propagate error so callers can handle properly
-    throw error;
-  } finally {
-    if (browser) {
-      await browser.close();
+    } catch (error) {
+      console.error('Cookie extraction failed:', error.message);
+      // Propagate error so callers can handle properly
+      throw error;
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
     }
   }
-}
 }
 
 // Initialize the bypass manager
