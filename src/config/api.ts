@@ -16,15 +16,24 @@ export const BACKEND_SERVERS = {
 const getApiBaseUrl = (): string => {
   // Check if we're in development mode or running locally
   const isDevelopment = import.meta.env.DEV;
+  console.log('🔌 API Config: Mode=', isDevelopment ? 'Development' : 'Production');
+
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  
+
   // Explicit override (useful for dev pointing to Railway)
-  if (BACKEND_SERVERS.EXPLICIT) return BACKEND_SERVERS.EXPLICIT;
+  if (BACKEND_SERVERS.EXPLICIT) {
+    console.log('🔌 API Config: Using explicit backend URL:', BACKEND_SERVERS.EXPLICIT);
+    return BACKEND_SERVERS.EXPLICIT;
+  }
 
   // In development/local, use relative URLs and rely on Vite proxy
-  if (isDevelopment && isLocalhost) return BACKEND_SERVERS.LOCAL;
+  if (isDevelopment && isLocalhost) {
+    console.log('🔌 API Config: Using local relative URL (Vite proxy)');
+    return BACKEND_SERVERS.LOCAL;
+  }
 
   // In production (Vercel), use serverless functions (relative)
+  console.log('🔌 API Config: Using production URL (Vercel/Railway)');
   return BACKEND_SERVERS.VERCEL;
 };
 
