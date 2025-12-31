@@ -1330,15 +1330,12 @@ wss.on('connection', (ws, req) => {
 function sendProgressUpdate(sessionId, type, progress, details = {}) {
   // Skip if sessionId is null (session was disconnected)
   if (!sessionId) {
-    console.log(`📡 SERVER DEBUG: Skipping progress update - session was disconnected`);
     return;
   }
 
   const ws = wsConnections.get(sessionId);
-  console.log(`📡 SERVER DEBUG: Attempting to send progress update for session: ${sessionId}`);
-  console.log(`📡 SERVER DEBUG: WebSocket found: ${!!ws}, ReadyState: ${ws?.readyState}`);
-  console.log(`📡 SERVER DEBUG: Total active connections: ${wsConnections.size}`);
-  console.log(`📡 SERVER DEBUG: All registered sessions:`, Array.from(wsConnections.keys()));
+  // Log only once per session/type combo or on errors to reduce noise
+  // console.log(`📡 SERVER DEBUG: Attempting to send progress update for session: ${sessionId}`);
 
   if (ws && ws.readyState === ws.OPEN) {
     const message = {
@@ -1347,17 +1344,15 @@ function sendProgressUpdate(sessionId, type, progress, details = {}) {
       progress: progress,
       ...details
     };
-    console.log(`📡 SERVER DEBUG: Sending WebSocket message:`, message);
+
     try {
       ws.send(JSON.stringify(message));
-      console.log(`📡 SERVER DEBUG: Message sent successfully`);
     } catch (error) {
       console.error(`📡 SERVER DEBUG: Error sending WebSocket message:`, error);
     }
   } else {
-    console.log(`📡 SERVER DEBUG: Cannot send progress - WebSocket not available or not open`);
-    console.log(`📡 SERVER DEBUG: Available sessions:`, Array.from(wsConnections.keys()));
-    console.log(`📡 SERVER DEBUG: Requested sessionId: ${sessionId}`);
+    // Suppress "WebSocket not available" log as it spams heavily during downloads
+    // console.log(`📡 SERVER DEBUG: Cannot send progress - WebSocket not available or not open`);
   }
 }
 
@@ -2126,8 +2121,8 @@ app.post('/api/download-video', async (req, res) => {
 
         const unifiedProgress = calculateUnifiedProgress();
 
-        console.log(`📊 DEBUG: Stage '${stage}' progress: ${validProgress}% (was: ${currentStageProgress}%) -> Unified: ${unifiedProgress}%`);
-        console.log(`📊 DEBUG: Stage progress state:`, JSON.stringify(stageProgress));
+        // console.log(`📊 DEBUG: Stage '${stage}' progress: ${validProgress}% (was: ${currentStageProgress}%) -> Unified: ${unifiedProgress}%`);
+        // console.log(`📊 DEBUG: Stage progress state:`, JSON.stringify(stageProgress));
 
         if (sessionId) {
           const operationKey = `download_${url}`;
