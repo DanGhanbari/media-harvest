@@ -2011,7 +2011,19 @@ app.post('/api/download-video', async (req, res) => {
         }
       }
 
-      return spawn(getYtDlpPath(), ytDlpArgs);
+      const ytDlpPath = await getYtDlpPath();
+      let command, commandArgs;
+
+      if (ytDlpPath.includes(' ')) {
+        const parts = ytDlpPath.split(' ');
+        command = parts[0];
+        commandArgs = [...parts.slice(1), ...ytDlpArgs];
+      } else {
+        command = ytDlpPath;
+        commandArgs = ytDlpArgs;
+      }
+
+      return spawn(command, commandArgs);
     };
 
     ytDlp = await tryDownload();
