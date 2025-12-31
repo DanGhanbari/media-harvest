@@ -3370,25 +3370,24 @@ app.post('/api/video-info', async (req, res) => {
         // Helper to run a strategy with web-focused clients (bypassing TV/Android loops)
         if ((url.includes('youtube.com') || url.includes('youtu.be')) &&
           (stderr.includes('Sign in to confirm') ||
+            stderr.includes('please sign in') ||
             stderr.includes('bot') || stderr.includes('429') || stderr.includes('403'))) {
 
-          console.log('🚨 YouTube access issue detected, retrying with Robust Web Client and Cookies');
+          console.log('🚨 YouTube access issue detected (Geo-lock). Retrying with Public Access (NO COOKIES)...');
 
           const retryWebArgs = [
             '--dump-json',
             '--no-playlist',
             '--no-warnings',
-            '--extractor-args', 'youtube:player_client=web,web_creator', // FORCE WEB
-            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+            // Use default client strategy but ensure we have a good User Agent
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
           ];
 
-          // Ensure cookies are passed if available
-          const localCookiesPath = path.resolve('.cookies/accounts/default.txt');
-          if (fs.existsSync(localCookiesPath)) {
-            retryWebArgs.push('--cookies', localCookiesPath);
-          } else if (process.env.YOUTUBE_COOKIES_PATH && fs.existsSync(process.env.YOUTUBE_COOKIES_PATH)) {
-            retryWebArgs.push('--cookies', process.env.YOUTUBE_COOKIES_PATH);
-          }
+          // CRITICAL: PROCEED WITHOUT COOKIES (Public Access Fallback)
+          // We intentionally do NOT add cookies here to bypass Geo-lock/Authentication blocks.
+
+          // Also explicitly remove extractor args to let yt-dlp choose best public client
+          // (or use base args if we were inheriting, but here we build fresh)
 
           retryWebArgs.push(url);
 
