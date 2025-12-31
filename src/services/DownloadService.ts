@@ -60,12 +60,16 @@ export class DownloadService {
     console.log('🔌 DownloadService: Generated new sessionId:', this.sessionId, 'Previous:', oldSessionId);
 
     // Check if we're on Vercel (serverless platform that doesn't support WebSockets)
-    const isVercel = window.location.hostname.includes('vercel.app') || 
-                     window.location.hostname.includes('vercel.com');
-    
-    if (isVercel) {
-      console.log('🔌 CLIENT DEBUG: Vercel environment detected - WebSocket connections not supported on serverless platforms');
-      console.log('🔌 CLIENT DEBUG: Downloads will work without real-time progress updates');
+    // ONLY disable if we are using the local/relative backend (which would be Vercel serverless functions)
+    // If we are using an explicit external backend (like Railway), WebSockets should work fine
+    const isVercel = window.location.hostname.includes('vercel.app') ||
+      window.location.hostname.includes('vercel.com');
+
+    // Check if API_BASE_URL is absolute (http:// or https://)
+    const isExternalBackend = API_BASE_URL.startsWith('http://') || API_BASE_URL.startsWith('https://');
+
+    if (isVercel && !isExternalBackend) {
+      console.log('🔌 CLIENT DEBUG: Vercel environment detected with relative backend - WebSocket connections disabled');
       return;
     }
 
@@ -82,13 +86,13 @@ export class DownloadService {
       const protocol = (apiUrl.protocol === 'https:' && useSecure) ? 'wss:' : 'ws:';
       wsUrl = `${protocol}//${apiUrl.host}`;
     }
-    
+
     console.log(`🔌 CLIENT DEBUG: API_BASE_URL: ${API_BASE_URL}`);
     console.log(`🔌 CLIENT DEBUG: Final WebSocket URL: ${wsUrl}`);
     console.log(`🔌 DownloadService: Attempting WebSocket connection to: ${wsUrl} with sessionId: ${this.sessionId}`);
     console.log('🔌 DownloadService: Creating WebSocket connection to:', wsUrl);
     this.ws = new WebSocket(wsUrl);
-    
+
     this.ws.onopen = () => {
       console.log('🔌 DownloadService: WebSocket connected for progress tracking, sessionId:', this.sessionId);
       console.log('🔌 DownloadService: WebSocket readyState:', this.ws?.readyState);
@@ -100,19 +104,19 @@ export class DownloadService {
       console.log('🔌 DownloadService: Sending registration message:', registerMessage);
       this.ws?.send(JSON.stringify(registerMessage));
     };
-    
+
     this.ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         console.log('📨 DownloadService: WebSocket message received', data);
         console.log('📨 DownloadService: Current progress callbacks:', Array.from(this.progressCallbacks.keys()));
-        
+
         if (data.type === 'progress') {
           console.log('📊 DownloadService: Checking for callback with operation:', JSON.stringify(data.operation));
           console.log('📊 DownloadService: Available callback keys:', Array.from(this.progressCallbacks.keys()).map(k => JSON.stringify(k)));
           console.log('📊 DownloadService: Frontend sessionId:', this.sessionId);
           console.log('📊 DownloadService: Message data:', data);
-          
+
           const callback = this.progressCallbacks.get(data.operation);
           if (callback) {
             const timestamp = new Date().toISOString();
@@ -131,7 +135,7 @@ export class DownloadService {
         console.error('Error parsing WebSocket message:', error);
       }
     };
-    
+
     this.ws.onclose = () => {
       const timestamp = new Date().toISOString();
       console.log(`🔌 DownloadService: WebSocket disconnected at ${timestamp}`);
@@ -154,7 +158,7 @@ export class DownloadService {
         this.progressCallbacks.clear();
       }
     };
-    
+
     this.ws.onerror = (error) => {
       console.error('🔌 DownloadService: WebSocket error:', error);
       console.error('🔌 DownloadService: WebSocket error event:', error.type);
@@ -175,12 +179,12 @@ export class DownloadService {
     console.log(`📥 DownloadService: downloadMedia called at ${timestamp}`, { filename: item.filename, quality, hasProgressCallback: !!onProgress, sessionId: this.sessionId, url: item.url });
     console.log('📥 DownloadService: Current active downloads:', Array.from(this.activeDownloads.keys()));
     console.log('📥 DownloadService: Current progress callbacks:', Array.from(this.progressCallbacks.keys()));
-    
+
     const downloadId = item.url;
-    
+
     // Initialize WebSocket if not already connected
     this.initWebSocket();
-    
+
     // Wait for WebSocket to connect if it's not already connected
     if (this.ws?.readyState !== WebSocket.OPEN) {
       console.log('📥 DownloadService: Waiting for WebSocket connection...');
@@ -202,7 +206,7 @@ export class DownloadService {
         checkConnection();
       });
     }
-    
+
     // Register progress callback for this download using unique key
     const callbackKey = `download_${item.url}`;
     if (onProgress) {
@@ -211,20 +215,20 @@ export class DownloadService {
       this.progressCallbacks.set(callbackKey, onProgress);
       console.log('📊 DownloadService: Current callbacks after registration:', Array.from(this.progressCallbacks.keys()).map(k => JSON.stringify(k)));
     }
-    
+
     // Create abort controller for this download
     const abortController = new AbortController();
     this.activeDownloads.set(downloadId, abortController);
 
     try {
       // Handle different types of media downloads
-    if (item.type === 'video' && item.url.includes('blob:')) {
-      await this.downloadBlobVideo(item);
-    } else if (this.isSupportedPlatform(item.url)) {
-      await this.downloadEmbeddedVideo(item, quality, abortController.signal, onProgress, startTime, endTime);
-    } else {
-      await this.downloadDirectMedia(item, abortController.signal);
-    }
+      if (item.type === 'video' && item.url.includes('blob:')) {
+        await this.downloadBlobVideo(item);
+      } else if (this.isSupportedPlatform(item.url)) {
+        await this.downloadEmbeddedVideo(item, quality, abortController.signal, onProgress, startTime, endTime);
+      } else {
+        await this.downloadDirectMedia(item, abortController.signal);
+      }
     } catch (error) {
       console.error('Download failed:', error);
       throw new Error(`Failed to download ${item.filename}`);
@@ -243,7 +247,7 @@ export class DownloadService {
       // First abort the fetch request
       abortController.abort();
       this.activeDownloads.delete(itemUrl);
-      
+
       // Then call the backend cancel endpoint
       try {
         await fetch(API_ENDPOINTS.CANCEL_DOWNLOAD, {
@@ -293,14 +297,14 @@ export class DownloadService {
     try {
       console.log('🔍 getVideoInfo called with URL:', url);
       console.log('🔍 API_ENDPOINTS.VIDEO_INFO:', API_ENDPOINTS.VIDEO_INFO);
-      
+
       // Add a client-side timeout as well (50 seconds to allow for server timeout)
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 50000);
-      
+
       const requestBody = JSON.stringify({ url });
       console.log('🔍 Request body:', requestBody);
-      
+
       console.log('🔍 Making fetch request...');
       const response = await fetch(API_ENDPOINTS.VIDEO_INFO, {
         method: 'POST',
@@ -310,40 +314,40 @@ export class DownloadService {
         body: requestBody,
         signal: controller.signal
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       console.log('🔍 Response received:', {
         status: response.status,
         statusText: response.statusText,
         headers: Object.fromEntries(response.headers.entries())
       });
-      
+
       if (!response.ok) {
         console.error('❌ Response not OK:', response.status, response.statusText);
         const errorText = await response.text();
         console.error('❌ Error response body:', errorText);
-        
+
         if (response.status === 408) {
           console.warn('Video analysis timed out - video may be too large or network too slow');
           return null;
         }
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
-      
+
       const responseText = await response.text();
       console.log('🔍 Raw response text:', responseText);
-      
+
       const data = JSON.parse(responseText);
       console.log('🔍 Parsed response data:', data);
-      
+
       const result = {
         title: data.title || 'Unknown Title',
         duration: data.duration || 0,
         uploader: data.uploader || 'Unknown',
         thumbnail: data.thumbnail
       };
-      
+
       console.log('✅ getVideoInfo returning:', result);
       return result;
     } catch (error) {
@@ -364,7 +368,7 @@ export class DownloadService {
   private static async downloadDirectMedia(item: MediaItem, signal?: AbortSignal): Promise<void> {
     try {
       console.log('📡 DownloadService: Downloading direct media via backend API');
-      
+
       const response = await fetch(API_ENDPOINTS.DOWNLOAD_DIRECT, {
         method: 'POST',
         headers: {
@@ -376,16 +380,16 @@ export class DownloadService {
         }),
         signal
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
         throw new Error(`Backend download failed: ${errorData.error || response.statusText}`);
       }
-      
+
       // Get the file as a blob and save it
       const blob = await response.blob();
       saveAs(blob, item.filename);
-      
+
     } catch (error) {
       console.error('Direct media download failed:', error);
       // Last resort: create a download link
@@ -398,7 +402,7 @@ export class DownloadService {
       // For blob URLs, we need to handle them client-side since they're browser-specific
       // First try to check with backend (will return helpful error message)
       console.log('📡 DownloadService: Checking blob download with backend');
-      
+
       const backendResponse = await fetch(API_ENDPOINTS.DOWNLOAD_BLOB, {
         method: 'POST',
         headers: {
@@ -409,17 +413,17 @@ export class DownloadService {
           filename: item.filename
         })
       });
-      
+
       if (!backendResponse.ok) {
         // Backend confirms blob URLs must be handled client-side
         console.log('📱 DownloadService: Handling blob URL client-side as expected');
       }
-      
+
       // Handle blob URL directly in the browser
       const response = await fetch(item.url);
       const blob = await response.blob();
       saveAs(blob, item.filename);
-      
+
     } catch (error) {
       console.error('Failed to download blob video:', error);
       throw error;
@@ -428,7 +432,7 @@ export class DownloadService {
 
   private static async downloadEmbeddedVideo(item: MediaItem, quality?: string, signal?: AbortSignal, onProgress?: (progress: number) => void, startTime?: string | number, endTime?: string | number): Promise<void> {
     // Downloading video from supported platform
-    
+
     // Handle all supported platforms using the unified backend
     if (this.isSupportedPlatform(item.url)) {
       try {
@@ -448,7 +452,7 @@ export class DownloadService {
       throw new Error('Failed to download embedded video');
     }
   }
-  
+
 
 
   private static isSupportedPlatform(url: string): boolean {
@@ -469,7 +473,7 @@ export class DownloadService {
       'pornhub.com',
       'xvideos.com'
     ];
-    
+
     return supportedPlatforms.some(platform => url.toLowerCase().includes(platform));
   }
 
@@ -494,10 +498,10 @@ export class DownloadService {
       videoInfo
     };
   }
-  
+
   private static getPlatformName(url: string): string {
     const urlLower = url.toLowerCase();
-    
+
     if (urlLower.includes('youtube.com') || urlLower.includes('youtu.be')) {
       return 'YouTube';
     } else if (urlLower.includes('instagram.com')) {
@@ -532,10 +536,10 @@ export class DownloadService {
       return 'Unknown Platform';
     }
   }
-  
+
   private static async downloadFromPlatform(item: MediaItem, quality: string = 'high', signal?: AbortSignal, onProgress?: (progress: number) => void, startTime?: string | number, endTime?: string | number): Promise<void> {
     const isYouTube = this.isYouTubeUrl(item.url);
-    
+
     const downloadServices = [
       // Service 1: Try primary backend (Vercel serverless or local)
       async () => {
@@ -549,7 +553,7 @@ export class DownloadService {
     ];
 
     let lastError: Error | null = null;
-    
+
     for (let i = 0; i < downloadServices.length; i++) {
       try {
         await downloadServices[i]();
@@ -557,7 +561,7 @@ export class DownloadService {
       } catch (error) {
         lastError = error as Error;
         console.log(`❌ DownloadService: Service ${i + 1} failed:`, lastError.message);
-        
+
         // For YouTube 403 errors, continue to fallback. For other errors, break early
         if (!isYouTube || !lastError.message.includes('403') || i === downloadServices.length - 1) {
           // Don't continue for non-YouTube or if this was the last service
@@ -569,27 +573,27 @@ export class DownloadService {
         }
       }
     }
-    
+
     if (lastError?.message.includes('Requested format is not available')) {
       throw new Error(`🚫 This video does not have any downloadable formats available. It might be restricted or only contain image formats.`);
     }
-    
+
     throw new Error(`All download services failed for ${this.getPlatformName(item.url)}. Last error: ${lastError?.message}`);
   }
 
   private static async tryDownloadWithEndpoint(
-    endpoint: string, 
-    item: MediaItem, 
-    quality: string, 
-    signal?: AbortSignal, 
-    startTime?: string | number, 
+    endpoint: string,
+    item: MediaItem,
+    quality: string,
+    signal?: AbortSignal,
+    startTime?: string | number,
     endTime?: string | number,
     serviceName: string = 'unknown'
   ): Promise<void> {
     // Create a timeout controller for large file downloads (5 minutes)
     const timeoutController = new AbortController();
     const timeoutId = setTimeout(() => timeoutController.abort(), 300000);
-    
+
     // Combine the existing signal with timeout signal
     let combinedSignal = timeoutController.signal;
     if (signal) {
@@ -602,7 +606,7 @@ export class DownloadService {
         combinedSignal = timeoutController.signal;
       }
     }
-    
+
     try {
       const requestBody: DownloadRequest = {
         url: item.url,
@@ -627,7 +631,7 @@ export class DownloadService {
       } catch (e) {
         // Non-blocking: ensure logging doesn't interfere with download
       }
-      
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -636,30 +640,30 @@ export class DownloadService {
         body: JSON.stringify(requestBody),
         signal: combinedSignal
       });
-      
+
       console.log(`✅ DownloadService: Fetch response status: ${response.status} (${serviceName})`);
-      
+
       clearTimeout(timeoutId);
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        
+
         // Handle authentication errors for Instagram/Facebook/YouTube with helpful messages
         if (response.status === 403 && errorData.platform) {
           let errorMessage = '';
           if (errorData.platform === 'youtube') {
             errorMessage = `🚫 ${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`;
           } else if (errorData.platform === 'instagram' || errorData.platform === 'facebook') {
-            errorMessage = errorData.isProduction 
+            errorMessage = errorData.isProduction
               ? `🚫 ${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`
               : `${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`;
           }
           throw new Error(errorMessage);
         }
-        
+
         throw new Error(`Backend download failed (${serviceName}): ${errorData.error || response.statusText}`);
       }
-      
+
       // Get the file as a blob and save it
       const blob = await response.blob();
       saveAs(blob, item.filename);
@@ -678,7 +682,7 @@ export class DownloadService {
       link.href = url;
       link.download = filename;
       link.target = '_blank';
-      
+
       // Add to DOM, click, and remove
       document.body.appendChild(link);
       link.click();
@@ -689,13 +693,13 @@ export class DownloadService {
       window.open(url, '_blank');
     }
   }
-  
+
   private static extractYouTubeId(url: string): string {
     // Attempting to extract YouTube ID
-    
+
     // Clean URL by removing fragments and the '?si=' parameter
     const cleanUrl = url.split('#')[0].split('?si=')[0];
-    
+
     // Extract YouTube video ID from various URL formats
     const patterns = [
       // Standard URL patterns
@@ -703,27 +707,27 @@ export class DownloadService {
       /youtube\.com\/watch\?v=([^/&]+)/,
       /youtube\.com\/embed\/([^/]+)/,
       /youtube\.com\/v\/([^/]+)/,
-      
+
       // Shortened URL patterns
       /youtube\.com\/shorts\/([^/]+)/,
-      
+
       // With additional parameters
       /youtube\.com\/watch\?.*v=([^/&]+)/,
-      
+
       // Mobile URLs
       /m\.youtube\.com\/watch\?v=([^/&]+)/,
-      
+
       // Embedded URLs
       /youtube\.com\/embed\/([^/]+)/,
       /youtube-nocookie\.com\/embed\/([^/]+)/,
-      
+
       // Live stream URLs
       /youtube\.com\/live\/([^/]+)/,
-      
+
       // Channel URLs with video ID
       /youtube\.com\/c\/[^/]+\/videos\/([^/]+)/
     ];
-    
+
     // Try each pattern until we find a match
     for (const pattern of patterns) {
       const match = cleanUrl.match(pattern);
@@ -733,25 +737,25 @@ export class DownloadService {
         return match[1];
       }
     }
-    
+
     // Fallback to original pattern
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|\/videos\/|\/embed\/|\/v\/|\/e\/|watch\?v=|\?v=|&v=|embed\?v=|\/v\/|\/e\/|watch\?v=|\?v=|&v=)([^#&?]*).*/;
     const fallbackMatch = cleanUrl.match(regExp);
     // Fallback match
-    
+
     const result = (fallbackMatch && fallbackMatch[2] && (fallbackMatch[2].length === 11 || fallbackMatch[2].length === 10)) ? fallbackMatch[2] : '';
     // Final result
-    
+
     if (!result) {
       throw new Error(`Could not extract YouTube ID from URL: ${url}`);
     }
-    
+
     return result;
   }
 
   static async downloadAll(items: MediaItem[]): Promise<void> {
     const downloadPromises = items.map(item => this.downloadMedia(item));
-    
+
     try {
       await Promise.allSettled(downloadPromises);
     } catch (error) {
@@ -763,7 +767,7 @@ export class DownloadService {
   static async downloadWithFFmpeg(item: MediaItem): Promise<void> {
     // Note: FFmpeg integration would require a backend service or WebAssembly version
     // For now, we'll show instructions for manual FFmpeg usage
-    
+
     const ffmpegInstructions = `
       To download this media with FFmpeg, use the following command:
       
@@ -772,9 +776,9 @@ export class DownloadService {
       For blob videos or complex streams, you might need:
       ffmpeg -i "${item.url}" -c:v libx264 -c:a aac "${item.filename}"
     `;
-    
+
     // FFmpeg instructions available
-    
+
     // For demo purposes, fall back to regular download
     await this.downloadDirectMedia(item);
   }
