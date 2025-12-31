@@ -1758,8 +1758,8 @@ app.post('/api/download-video', async (req, res) => {
       '--verbose',
       '--progress', // Enable progress output
       '--newline', // Each progress line on new line
-      '--user-agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', // Spoof user agent
-      '--extractor-args', 'youtube:player_client=web,web_creator', // Use standard web client to avoid PO Token blocks
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36', // Latest Chrome
+      '--extractor-args', 'youtube:player_client=web_creator,ios,web', // Prioritize Creator/iOS over standard Web
       '--no-check-formats', // Don't verify format availability
       '--no-check-certificate', // Bypass SSL certificate checks
       '--prefer-free-formats' // Prefer free formats when available
@@ -1786,7 +1786,7 @@ app.post('/api/download-video', async (req, res) => {
         '--http-chunk-size', '10485760', // 10MB chunks
         '--throttled-rate', '100K', // Rate limiting to avoid detection
         '--write-info-json', // Write metadata
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         '--referer', 'https://www.youtube.com/',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
         '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -3161,9 +3161,9 @@ app.post('/api/video-info', async (req, res) => {
       '--extractor-retries', '1'
     ];
 
-    // Prefer TV client to avoid SABR web client restrictions; add cookies if available
+    // Use Web Creator/iOS client to allow cookies to work properly and bypass blocks
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      console.log('YouTube URL detected; preferring TV client and checking cookies');
+      console.log('YouTube URL detected; preferring Web Creator/iOS client and checking cookies');
 
       // Attempt to resolve cookies path robustly for Railway (/app is working dir)
       const localCookiesPath = path.resolve('.cookies/accounts/default.txt');
@@ -3175,8 +3175,8 @@ app.post('/api/video-info', async (req, res) => {
         console.log('🍪 Using cookies from env for video info:', process.env.YOUTUBE_COOKIES_PATH);
       }
 
-      // Use Web client to allow cookies to work properly
-      ytDlpArgs.push('--extractor-args', 'youtube:player_client=web,web_creator');
+      // Use Web Creator/iOS client
+      ytDlpArgs.push('--extractor-args', 'youtube:player_client=web_creator,ios,web');
     }
 
     ytDlpArgs.push(url);
