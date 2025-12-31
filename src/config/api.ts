@@ -22,8 +22,16 @@ const getApiBaseUrl = (): string => {
 
   // Explicit override (useful for dev pointing to Railway)
   if (BACKEND_SERVERS.EXPLICIT) {
-    console.log('🔌 API Config: Using explicit backend URL:', BACKEND_SERVERS.EXPLICIT);
-    return BACKEND_SERVERS.EXPLICIT;
+    let url = BACKEND_SERVERS.EXPLICIT;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = `https://${url}`;
+    }
+    // Remove trailing slash if present to avoid clean concatenation later
+    if (url.endsWith('/')) {
+      url = url.slice(0, -1);
+    }
+    console.log('🔌 API Config: Using explicit backend URL:', url);
+    return url;
   }
 
   // In development/local, use relative URLs and rely on Vite proxy
