@@ -2769,6 +2769,7 @@ app.post('/api/download-video', async (req, res) => {
           const isAuthError = platform === 'youtube' && (
             errorOutput.includes('login_required') ||
             errorOutput.includes('sign in to confirm') ||
+            errorOutput.includes('please sign in') ||
             errorOutput.includes('cookies-from-browser') ||
             errorOutput.includes('authentication')
           );
@@ -2784,6 +2785,12 @@ app.post('/api/download-video', async (req, res) => {
             const cookieIndex = ytDlpArgs.indexOf('--cookies');
             if (cookieIndex !== -1) {
               ytDlpArgs.splice(cookieIndex, 2);
+            }
+
+            // Also remove --extractor-args to revert to default (safest for public)
+            const extractorIndex = ytDlpArgs.indexOf('--extractor-args');
+            if (extractorIndex !== -1) {
+              ytDlpArgs.splice(extractorIndex, 2);
             }
 
             // Cleanup old temp dir
