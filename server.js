@@ -9,6 +9,21 @@ class YouTubeBypassManager {
     this.lastProxyRotation = 0;
     this.proxyFailures = new Map();
     this.cookieJar = null;
+
+    // ENSURE NODE IS VISIBLE TO YT-DLP:
+    // yt-dlp needs Node.js for JS interpretation (Solving n-sig, etc.)
+    // We add the directory of the current node executable to PATH
+    try {
+      const nodeDir = path.dirname(process.execPath);
+      const currentPath = process.env.PATH || '';
+      if (!currentPath.includes(nodeDir)) {
+        process.env.PATH = `${nodeDir}${path.delimiter}${currentPath}`;
+        console.log(`🔧 Updated PATH for yt-dlp compatibility: Added ${nodeDir}`);
+      }
+    } catch (e) {
+      console.error('Failed to update PATH for node runtime:', e);
+    }
+
     this.initializeCookieJar();
     this.initializeProxySystem();
   }
