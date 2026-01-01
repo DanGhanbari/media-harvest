@@ -30,7 +30,7 @@ class YouTubeBypassManager {
       // 1. Check if deno is already in PATH
       let denoPath = '';
       try {
-        denoPath = require('child_process').execSync('which deno', { encoding: 'utf8' }).trim();
+        denoPath = execSync('which deno', { encoding: 'utf8' }).trim();
         console.log(`🔧 Deno found at: ${denoPath}`);
       } catch (e) {
         console.log('⚠️ Deno not found in initial PATH. Searching...');
@@ -38,7 +38,7 @@ class YouTubeBypassManager {
 
       // 2. If not found, try common locations
       if (!denoPath) {
-        const home = require('os').homedir();
+        const home = os.homedir();
         const commonPaths = [
           path.join(home, '.deno', 'bin', 'deno'), // Standard install location (~/.deno/bin/deno)
           '/usr/bin/deno',
@@ -1316,7 +1316,7 @@ function addRandomDelay() {
   return youtubeBypass.addAdaptiveDelay();
 }
 import express from 'express';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
