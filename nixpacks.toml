@@ -3,7 +3,7 @@
 nixPkgs = ['nodejs_18', 'ffmpeg', 'curl', 'python3', 'python3Packages.pip', 'deno', 'unzip']
 
 [phases.install]
-cmds = ['curl -fsSL https://deno.land/install.sh | sh', 'pip3 install --break-system-packages yt-dlp']
+cmds = ['mkdir -p /app/.deno', 'curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/app/.deno sh', 'pip3 install --break-system-packages yt-dlp']
 
 [phases.build]
 cmds = ['npm ci', 'npm run build']
@@ -11,4 +11,4 @@ cmds = ['npm ci', 'npm run build']
 [phases.start]
 cmd = 'node server.js'
 
-# Force rebuild timestamp: 2025-01-16-10:00:00
+# Force rebuild timestamp: 2025-01-16-12:00:00
