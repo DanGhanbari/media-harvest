@@ -1770,7 +1770,7 @@ app.post('/api/download-video', async (req, res) => {
       '--newline', // Each progress line on new line
       '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36', // Latest Chrome
       '--extractor-args', 'youtube:player_client=web_creator,ios,web', // Prioritize Creator/iOS over standard Web
-      '--js-runtimes', 'node', // FORCE usage of Node.js for signature decryption (fixes "JS runtimes: none" error)
+      '--js-runtimes', 'deno', // Use Deno for signature decryption (Node is unsupported/broken in current yt-dlp)
       '--no-check-formats', // Don't verify format availability
       '--no-check-certificate', // Bypass SSL certificate checks
       '--prefer-free-formats' // Prefer free formats when available
