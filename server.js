@@ -18,10 +18,54 @@ class YouTubeBypassManager {
       const currentPath = process.env.PATH || '';
       if (!currentPath.includes(nodeDir)) {
         process.env.PATH = `${nodeDir}${path.delimiter}${currentPath}`;
-        console.log(`🔧 Updated PATH for yt-dlp compatibility: Added ${nodeDir}`);
+        console.log(`🔧 Updated PATH for yt-dlp compatibility: Added Node dir ${nodeDir}`);
       }
     } catch (e) {
       console.error('Failed to update PATH for node runtime:', e);
+    }
+
+    // ENSURE DENO IS VISIBLE TO YT-DLP:
+    // Support finding Deno even if not in standard PATH (common in Nix/Railway envs)
+    try {
+      // 1. Check if deno is already in PATH
+      let denoPath = '';
+      try {
+        denoPath = require('child_process').execSync('which deno', { encoding: 'utf8' }).trim();
+        console.log(`🔧 Deno found at: ${denoPath}`);
+      } catch (e) {
+        console.log('⚠️ Deno not found in initial PATH. Searching...');
+      }
+
+      // 2. If not found, try common locations
+      if (!denoPath) {
+        const commonPaths = [
+          '/usr/bin/deno',
+          '/usr/local/bin/deno',
+          '/nix/var/nix/profiles/default/bin/deno',
+          '/root/.deno/bin/deno',
+          '/home/railway/.deno/bin/deno'
+        ];
+
+        for (const p of commonPaths) {
+          if (fs.existsSync(p)) {
+            denoPath = p;
+            console.log(`🔧 Found Deno at backup location: ${denoPath}`);
+            // Add to PATH
+            const deniedDir = path.dirname(p);
+            process.env.PATH = `${deniedDir}${path.delimiter}${process.env.PATH}`;
+            break;
+          }
+        }
+      }
+
+      // 3. Fallback: If absolutely can't find it, log warning.
+      if (!denoPath) {
+        console.error('❌ CRITICAL: Deno executable NOT found! yt-dlp authentication may fail.');
+        // List PATH for debugging
+        console.error('Current PATH:', process.env.PATH);
+      }
+    } catch (e) {
+      console.error('Failed to update PATH for Deno runtime:', e);
     }
 
     this.initializeCookieJar();
