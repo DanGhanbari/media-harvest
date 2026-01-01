@@ -112,23 +112,15 @@ export class DownloadService {
         console.log('📨 DownloadService: Current progress callbacks:', Array.from(this.progressCallbacks.keys()));
 
         if (data.type === 'progress') {
-          console.log('📊 DownloadService: Checking for callback with operation:', JSON.stringify(data.operation));
-          console.log('📊 DownloadService: Available callback keys:', Array.from(this.progressCallbacks.keys()).map(k => JSON.stringify(k)));
-          console.log('📊 DownloadService: Frontend sessionId:', this.sessionId);
-          console.log('📊 DownloadService: Message data:', data);
+          // console.log('📊 DownloadService: Frontend sessionId:', this.sessionId);
 
           const callback = this.progressCallbacks.get(data.operation);
           if (callback) {
-            const timestamp = new Date().toISOString();
-            console.log(`🔄 DownloadService: Progress callback invoked at ${timestamp} with progress:`, data.progress, 'for operation:', data.operation);
-            console.log('🔄 DownloadService: Progress data:', data);
+            // console.log(`🔄 DownloadService: Progress callback invoked at ${new Date().toISOString()}`);
             callback(data.progress, data);
           } else {
-            console.log('❌ DownloadService: No callback found for operation:', JSON.stringify(data.operation));
-            console.log('❌ DownloadService: Available callbacks:', Array.from(this.progressCallbacks.keys()).map(k => JSON.stringify(k)));
-            console.log('❌ DownloadService: Operation length:', data.operation?.length, 'First callback key length:', Array.from(this.progressCallbacks.keys())[0]?.length);
-            console.log('❌ DownloadService: Operation char codes:', Array.from(data.operation || '').map(c => (typeof c === 'string' ? c.charCodeAt(0) : 0)));
-            console.log('❌ DownloadService: First callback char codes:', Array.from(Array.from(this.progressCallbacks.keys())[0] || '').map(c => (typeof c === 'string' ? c.charCodeAt(0) : 0)));
+            // Keep error logging minimal or suppress if it happens often during clean shutdowns
+            // console.log('❌ DownloadService: No callback found for operation:', JSON.stringify(data.operation));
           }
         }
       } catch (error) {
@@ -176,9 +168,8 @@ export class DownloadService {
 
   static async downloadMedia(item: MediaItem, quality?: string, onProgress?: (progress: number) => void, startTime?: string | number, endTime?: string | number): Promise<void> {
     const timestamp = new Date().toISOString();
-    console.log(`📥 DownloadService: downloadMedia called at ${timestamp}`, { filename: item.filename, quality, hasProgressCallback: !!onProgress, sessionId: this.sessionId, url: item.url });
-    console.log('📥 DownloadService: Current active downloads:', Array.from(this.activeDownloads.keys()));
-    console.log('📥 DownloadService: Current progress callbacks:', Array.from(this.progressCallbacks.keys()));
+    // console.log(`📥 DownloadService: downloadMedia called at ${timestamp}`, { filename: item.filename, quality, hasProgressCallback: !!onProgress, sessionId: this.sessionId, url: item.url });
+    // console.log('📥 DownloadService: Current active downloads:', Array.from(this.activeDownloads.keys()));
 
     const downloadId = item.url;
 
@@ -187,17 +178,16 @@ export class DownloadService {
 
     // Wait for WebSocket to connect if it's not already connected
     if (this.ws?.readyState !== WebSocket.OPEN) {
-      console.log('📥 DownloadService: Waiting for WebSocket connection...');
+      // console.log('📥 DownloadService: Waiting for WebSocket connection...');
       await new Promise(resolve => {
         const startTime = Date.now();
         const checkConnection = () => {
-          console.log('📥 DownloadService: Checking WebSocket state:', this.ws?.readyState, 'Expected OPEN:', WebSocket.OPEN);
+          // console.log('📥 DownloadService: Checking WebSocket state:', this.ws?.readyState);
           if (this.ws?.readyState === WebSocket.OPEN) {
-            console.log('📥 DownloadService: WebSocket connection established');
+            // console.log('📥 DownloadService: WebSocket connection established');
             resolve(true);
           } else if (Date.now() - startTime > 5000) {
             console.log('📥 DownloadService: WebSocket connection timeout, proceeding without real-time progress');
-            console.log('📥 DownloadService: Final WebSocket state:', this.ws?.readyState);
             resolve(false);
           } else {
             setTimeout(checkConnection, 100);
@@ -206,569 +196,577 @@ export class DownloadService {
         checkConnection();
       });
     }
-
-    // Register progress callback for this download using unique key
-    const callbackKey = `download_${item.url}`;
-    if (onProgress) {
-      console.log('📊 DownloadService: Progress callback registered for operation:', JSON.stringify(callbackKey), 'sessionId:', this.sessionId);
-      console.log('📊 DownloadService: Item URL for callback key:', JSON.stringify(item.url));
-      this.progressCallbacks.set(callbackKey, onProgress);
-      console.log('📊 DownloadService: Current callbacks after registration:', Array.from(this.progressCallbacks.keys()).map(k => JSON.stringify(k)));
+    resolve(false);
+  } else {
+  setTimeout(checkConnection, 100);
+}
+        };
+checkConnection();
+      });
     }
 
-    // Create abort controller for this download
-    const abortController = new AbortController();
-    this.activeDownloads.set(downloadId, abortController);
+// Register progress callback for this download using unique key
+const callbackKey = `download_${item.url}`;
+if (onProgress) {
+  console.log('📊 DownloadService: Progress callback registered for operation:', JSON.stringify(callbackKey), 'sessionId:', this.sessionId);
+  console.log('📊 DownloadService: Item URL for callback key:', JSON.stringify(item.url));
+  this.progressCallbacks.set(callbackKey, onProgress);
+  console.log('📊 DownloadService: Current callbacks after registration:', Array.from(this.progressCallbacks.keys()).map(k => JSON.stringify(k)));
+}
 
+// Create abort controller for this download
+const abortController = new AbortController();
+this.activeDownloads.set(downloadId, abortController);
+
+try {
+  // Handle different types of media downloads
+  if (item.type === 'video' && item.url.includes('blob:')) {
+    await this.downloadBlobVideo(item);
+  } else if (this.isSupportedPlatform(item.url)) {
+    await this.downloadEmbeddedVideo(item, quality, abortController.signal, onProgress, startTime, endTime);
+  } else {
+    await this.downloadDirectMedia(item, abortController.signal);
+  }
+} catch (error) {
+  console.error('Download failed:', error);
+  throw new Error(`Failed to download ${item.filename}`);
+} finally {
+  this.activeDownloads.delete(downloadId);
+  // Clean up the progress callback using the same unique key
+  const callbackKey = `download_${item.url}`;
+  this.progressCallbacks.delete(callbackKey);
+  console.log('🧹 DownloadService: Cleaned up callback for:', callbackKey);
+}
+  }
+
+  static async cancelDownload(itemUrl: string): Promise < void> {
+  const abortController = this.activeDownloads.get(itemUrl);
+  if(abortController) {
+    // First abort the fetch request
+    abortController.abort();
+    this.activeDownloads.delete(itemUrl);
+
+    // Then call the backend cancel endpoint
     try {
-      // Handle different types of media downloads
-      if (item.type === 'video' && item.url.includes('blob:')) {
-        await this.downloadBlobVideo(item);
-      } else if (this.isSupportedPlatform(item.url)) {
-        await this.downloadEmbeddedVideo(item, quality, abortController.signal, onProgress, startTime, endTime);
-      } else {
-        await this.downloadDirectMedia(item, abortController.signal);
-      }
+      await fetch(API_ENDPOINTS.CANCEL_DOWNLOAD, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: itemUrl }),
+      });
+      // Download cancellation request sent to backend
     } catch (error) {
-      console.error('Download failed:', error);
-      throw new Error(`Failed to download ${item.filename}`);
-    } finally {
-      this.activeDownloads.delete(downloadId);
-      // Clean up the progress callback using the same unique key
-      const callbackKey = `download_${item.url}`;
-      this.progressCallbacks.delete(callbackKey);
-      console.log('🧹 DownloadService: Cleaned up callback for:', callbackKey);
+      console.error('Failed to send cancellation request to backend:', error);
     }
   }
-
-  static async cancelDownload(itemUrl: string): Promise<void> {
-    const abortController = this.activeDownloads.get(itemUrl);
-    if (abortController) {
-      // First abort the fetch request
-      abortController.abort();
-      this.activeDownloads.delete(itemUrl);
-
-      // Then call the backend cancel endpoint
-      try {
-        await fetch(API_ENDPOINTS.CANCEL_DOWNLOAD, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ url: itemUrl }),
-        });
-        // Download cancellation request sent to backend
-      } catch (error) {
-        console.error('Failed to send cancellation request to backend:', error);
-      }
-    }
-  }
+}
 
   static isDownloadActive(itemUrl: string): boolean {
-    return this.activeDownloads.has(itemUrl);
-  }
+  return this.activeDownloads.has(itemUrl);
+}
 
-  static async getQualityOptions(): Promise<QualityOption[]> {
-    try {
-      const response = await fetch(API_ENDPOINTS.QUALITY_OPTIONS, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
-      if (!response.ok) {
-        throw new Error('Failed to fetch quality options');
+  static async getQualityOptions(): Promise < QualityOption[] > {
+  try {
+    const response = await fetch(API_ENDPOINTS.QUALITY_OPTIONS, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
       }
-      const data = await response.json();
-      return data.options;
+    });
+    if(!response.ok) {
+  throw new Error('Failed to fetch quality options');
+}
+const data = await response.json();
+return data.options;
     } catch (error) {
-      console.error('Failed to get quality options:', error);
-      // Return default options if API fails
-      return [
-        { value: 'maximum', label: 'Best Quality', description: 'Best available quality up to 4K' },
-        { value: 'high', label: 'High Quality (1080p)', description: 'Full HD 1080p maximum' },
-        { value: 'medium', label: 'Medium Quality (720p)', description: 'HD 720p maximum' },
-        { value: 'low', label: 'Low Quality (480p)', description: 'SD 480p maximum' }
-      ];
-    }
+  console.error('Failed to get quality options:', error);
+  // Return default options if API fails
+  return [
+    { value: 'maximum', label: 'Best Quality', description: 'Best available quality up to 4K' },
+    { value: 'high', label: 'High Quality (1080p)', description: 'Full HD 1080p maximum' },
+    { value: 'medium', label: 'Medium Quality (720p)', description: 'HD 720p maximum' },
+    { value: 'low', label: 'Low Quality (480p)', description: 'SD 480p maximum' }
+  ];
+}
   }
 
-  static async getVideoInfo(url: string): Promise<{ title: string; duration: number; uploader: string; thumbnail?: string } | null> {
-    try {
-      console.log('🔍 getVideoInfo called with URL:', url);
-      console.log('🔍 API_ENDPOINTS.VIDEO_INFO:', API_ENDPOINTS.VIDEO_INFO);
+  static async getVideoInfo(url: string): Promise < { title: string; duration: number; uploader: string; thumbnail?: string } | null > {
+  try {
+    console.log('🔍 getVideoInfo called with URL:', url);
+    console.log('🔍 API_ENDPOINTS.VIDEO_INFO:', API_ENDPOINTS.VIDEO_INFO);
 
-      // Add a client-side timeout as well (50 seconds to allow for server timeout)
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 50000);
+    // Add a client-side timeout as well (50 seconds to allow for server timeout)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 50000);
 
-      const requestBody = JSON.stringify({ url });
-      console.log('🔍 Request body:', requestBody);
+    const requestBody = JSON.stringify({ url });
+    console.log('🔍 Request body:', requestBody);
 
-      console.log('🔍 Making fetch request...');
-      const response = await fetch(API_ENDPOINTS.VIDEO_INFO, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: requestBody,
-        signal: controller.signal
-      });
+    console.log('🔍 Making fetch request...');
+    const response = await fetch(API_ENDPOINTS.VIDEO_INFO, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: requestBody,
+      signal: controller.signal
+    });
 
-      clearTimeout(timeoutId);
+    clearTimeout(timeoutId);
 
       console.log('🔍 Response received:', {
-        status: response.status,
-        statusText: response.statusText,
-        headers: Object.fromEntries(response.headers.entries())
-      });
+      status: response.status,
+      statusText: response.statusText,
+      headers: Object.fromEntries(response.headers.entries())
+    });
 
-      if (!response.ok) {
-        console.error('❌ Response not OK:', response.status, response.statusText);
-        const errorText = await response.text();
-        console.error('❌ Error response body:', errorText);
+    if(!response.ok) {
+  console.error('❌ Response not OK:', response.status, response.statusText);
+  const errorText = await response.text();
+  console.error('❌ Error response body:', errorText);
 
-        if (response.status === 408) {
-          console.warn('Video analysis timed out - video may be too large or network too slow');
-          return null;
-        }
-        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
-      }
+  if (response.status === 408) {
+    console.warn('Video analysis timed out - video may be too large or network too slow');
+    return null;
+  }
+  throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+}
 
-      const responseText = await response.text();
-      console.log('🔍 Raw response text:', responseText);
+const responseText = await response.text();
+console.log('🔍 Raw response text:', responseText);
 
-      const data = JSON.parse(responseText);
-      console.log('🔍 Parsed response data:', data);
+const data = JSON.parse(responseText);
+console.log('🔍 Parsed response data:', data);
 
-      const result = {
-        title: data.title || 'Unknown Title',
-        duration: data.duration || 0,
-        uploader: data.uploader || 'Unknown',
-        thumbnail: data.thumbnail
-      };
+const result = {
+  title: data.title || 'Unknown Title',
+  duration: data.duration || 0,
+  uploader: data.uploader || 'Unknown',
+  thumbnail: data.thumbnail
+};
 
-      console.log('✅ getVideoInfo returning:', result);
-      return result;
+console.log('✅ getVideoInfo returning:', result);
+return result;
     } catch (error) {
-      if (error.name === 'AbortError') {
-        console.warn('Video analysis request was aborted due to timeout');
-        return null;
-      }
-      console.error('❌ Failed to fetch video info:', error);
-      console.error('❌ Error details:', {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      });
-      return null;
-    }
+  if (error.name === 'AbortError') {
+    console.warn('Video analysis request was aborted due to timeout');
+    return null;
+  }
+  console.error('❌ Failed to fetch video info:', error);
+  console.error('❌ Error details:', {
+    name: error.name,
+    message: error.message,
+    stack: error.stack
+  });
+  return null;
+}
   }
 
-  private static async downloadDirectMedia(item: MediaItem, signal?: AbortSignal): Promise<void> {
-    try {
-      console.log('📡 DownloadService: Downloading direct media via backend API');
+  private static async downloadDirectMedia(item: MediaItem, signal ?: AbortSignal): Promise < void> {
+  try {
+    console.log('📡 DownloadService: Downloading direct media via backend API');
 
-      const response = await fetch(API_ENDPOINTS.DOWNLOAD_DIRECT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          url: item.url,
-          filename: item.filename
-        }),
-        signal
-      });
+    const response = await fetch(API_ENDPOINTS.DOWNLOAD_DIRECT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        url: item.url,
+        filename: item.filename
+      }),
+      signal
+    });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(`Backend download failed: ${errorData.error || response.statusText}`);
-      }
+    if(!response.ok) {
+  const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+  throw new Error(`Backend download failed: ${errorData.error || response.statusText}`);
+}
 
-      // Get the file as a blob and save it
-      const blob = await response.blob();
-      saveAs(blob, item.filename);
+// Get the file as a blob and save it
+const blob = await response.blob();
+saveAs(blob, item.filename);
 
     } catch (error) {
-      console.error('Direct media download failed:', error);
-      // Last resort: create a download link
-      this.createDownloadLink(item.url, item.filename);
-    }
+  console.error('Direct media download failed:', error);
+  // Last resort: create a download link
+  this.createDownloadLink(item.url, item.filename);
+}
   }
 
-  private static async downloadBlobVideo(item: MediaItem): Promise<void> {
-    try {
-      // For blob URLs, we need to handle them client-side since they're browser-specific
-      // First try to check with backend (will return helpful error message)
-      console.log('📡 DownloadService: Checking blob download with backend');
+  private static async downloadBlobVideo(item: MediaItem): Promise < void> {
+  try {
+    // For blob URLs, we need to handle them client-side since they're browser-specific
+    // First try to check with backend (will return helpful error message)
+    console.log('📡 DownloadService: Checking blob download with backend');
 
-      const backendResponse = await fetch(API_ENDPOINTS.DOWNLOAD_BLOB, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          url: item.url,
-          filename: item.filename
-        })
-      });
+    const backendResponse = await fetch(API_ENDPOINTS.DOWNLOAD_BLOB, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        url: item.url,
+        filename: item.filename
+      })
+    });
 
-      if (!backendResponse.ok) {
-        // Backend confirms blob URLs must be handled client-side
-        console.log('📱 DownloadService: Handling blob URL client-side as expected');
-      }
+    if(!backendResponse.ok) {
+  // Backend confirms blob URLs must be handled client-side
+  console.log('📱 DownloadService: Handling blob URL client-side as expected');
+}
 
-      // Handle blob URL directly in the browser
-      const response = await fetch(item.url);
-      const blob = await response.blob();
-      saveAs(blob, item.filename);
+// Handle blob URL directly in the browser
+const response = await fetch(item.url);
+const blob = await response.blob();
+saveAs(blob, item.filename);
 
     } catch (error) {
-      console.error('Failed to download blob video:', error);
-      throw error;
-    }
+  console.error('Failed to download blob video:', error);
+  throw error;
+}
   }
 
-  private static async downloadEmbeddedVideo(item: MediaItem, quality?: string, signal?: AbortSignal, onProgress?: (progress: number) => void, startTime?: string | number, endTime?: string | number): Promise<void> {
-    // Downloading video from supported platform
+  private static async downloadEmbeddedVideo(item: MediaItem, quality ?: string, signal ?: AbortSignal, onProgress ?: (progress: number) => void, startTime ?: string | number, endTime ?: string | number): Promise < void> {
+  // Downloading video from supported platform
 
-    // Handle all supported platforms using the unified backend
-    if (this.isSupportedPlatform(item.url)) {
-      try {
-        await this.downloadFromPlatform(item, quality, signal, onProgress, startTime, endTime);
-        return;
-      } catch (error) {
-        console.error('Platform download failed:', error);
-        throw new Error(`Failed to download video from ${this.getPlatformName(item.url)}`);
-      }
-    }
+  // Handle all supported platforms using the unified backend
+  if(this.isSupportedPlatform(item.url)) {
+  try {
+    await this.downloadFromPlatform(item, quality, signal, onProgress, startTime, endTime);
+    return;
+  } catch (error) {
+    console.error('Platform download failed:', error);
+    throw new Error(`Failed to download video from ${this.getPlatformName(item.url)}`);
+  }
+}
 
-    // For unsupported platforms, try direct download
-    try {
-      await this.downloadDirectMedia(item, signal);
-    } catch (error) {
-      console.error('Direct download failed:', error);
-      throw new Error('Failed to download embedded video');
-    }
+// For unsupported platforms, try direct download
+try {
+  await this.downloadDirectMedia(item, signal);
+} catch (error) {
+  console.error('Direct download failed:', error);
+  throw new Error('Failed to download embedded video');
+}
   }
 
 
 
   private static isSupportedPlatform(url: string): boolean {
-    const supportedPlatforms = [
-      'youtube.com', 'youtu.be',
-      'instagram.com',
-      'facebook.com', 'fb.watch',
-      'twitter.com', 'x.com',
-      'tiktok.com',
-      'vimeo.com',
-      'dailymotion.com',
-      'twitch.tv',
-      'reddit.com',
-      'streamable.com',
-      'rumble.com',
-      'bitchute.com',
-      'odysee.com', 'lbry.tv',
-      'pornhub.com',
-      'xvideos.com'
-    ];
+  const supportedPlatforms = [
+    'youtube.com', 'youtu.be',
+    'instagram.com',
+    'facebook.com', 'fb.watch',
+    'twitter.com', 'x.com',
+    'tiktok.com',
+    'vimeo.com',
+    'dailymotion.com',
+    'twitch.tv',
+    'reddit.com',
+    'streamable.com',
+    'rumble.com',
+    'bitchute.com',
+    'odysee.com', 'lbry.tv',
+    'pornhub.com',
+    'xvideos.com'
+  ];
 
-    return supportedPlatforms.some(platform => url.toLowerCase().includes(platform));
-  }
+  return supportedPlatforms.some(platform => url.toLowerCase().includes(platform));
+}
 
   static isYouTubeUrl(url: string): boolean {
-    return url.includes('youtube.com') || url.includes('youtu.be');
-  }
+  return url.includes('youtube.com') || url.includes('youtu.be');
+}
 
-  static async checkIfLongVideo(url: string): Promise<{ isLong: boolean; duration: number; videoInfo?: { title: string; duration: number; uploader: string; thumbnail?: string } }> {
-    if (!this.isYouTubeUrl(url)) {
-      return { isLong: false, duration: 0 };
-    }
+  static async checkIfLongVideo(url: string): Promise < { isLong: boolean; duration: number; videoInfo?: { title: string; duration: number; uploader: string; thumbnail?: string } } > {
+  if(!this.isYouTubeUrl(url)) {
+  return { isLong: false, duration: 0 };
+}
 
-    const videoInfo = await this.getVideoInfo(url);
-    if (!videoInfo) {
-      return { isLong: false, duration: 0 };
-    }
+const videoInfo = await this.getVideoInfo(url);
+if (!videoInfo) {
+  return { isLong: false, duration: 0 };
+}
 
-    const isLong = videoInfo.duration > 960; // 16 minutes = 960 seconds
-    return {
-      isLong,
-      duration: videoInfo.duration,
-      videoInfo
-    };
+const isLong = videoInfo.duration > 960; // 16 minutes = 960 seconds
+return {
+  isLong,
+  duration: videoInfo.duration,
+  videoInfo
+};
   }
 
   private static getPlatformName(url: string): string {
-    const urlLower = url.toLowerCase();
+  const urlLower = url.toLowerCase();
 
-    if (urlLower.includes('youtube.com') || urlLower.includes('youtu.be')) {
-      return 'YouTube';
-    } else if (urlLower.includes('instagram.com')) {
-      return 'Instagram';
-    } else if (urlLower.includes('facebook.com') || urlLower.includes('fb.watch')) {
-      return 'Facebook';
-    } else if (urlLower.includes('twitter.com') || urlLower.includes('x.com')) {
-      return 'Twitter/X';
-    } else if (urlLower.includes('tiktok.com')) {
-      return 'TikTok';
-    } else if (urlLower.includes('vimeo.com')) {
-      return 'Vimeo';
-    } else if (urlLower.includes('dailymotion.com')) {
-      return 'Dailymotion';
-    } else if (urlLower.includes('twitch.tv')) {
-      return 'Twitch';
-    } else if (urlLower.includes('reddit.com')) {
-      return 'Reddit';
-    } else if (urlLower.includes('streamable.com')) {
-      return 'Streamable';
-    } else if (urlLower.includes('rumble.com')) {
-      return 'Rumble';
-    } else if (urlLower.includes('bitchute.com')) {
-      return 'BitChute';
-    } else if (urlLower.includes('odysee.com') || urlLower.includes('lbry.tv')) {
-      return 'Odysee';
-    } else if (urlLower.includes('pornhub.com')) {
-      return 'Pornhub';
-    } else if (urlLower.includes('xvideos.com')) {
-      return 'XVideos';
-    } else {
-      return 'Unknown Platform';
+  if (urlLower.includes('youtube.com') || urlLower.includes('youtu.be')) {
+    return 'YouTube';
+  } else if (urlLower.includes('instagram.com')) {
+    return 'Instagram';
+  } else if (urlLower.includes('facebook.com') || urlLower.includes('fb.watch')) {
+    return 'Facebook';
+  } else if (urlLower.includes('twitter.com') || urlLower.includes('x.com')) {
+    return 'Twitter/X';
+  } else if (urlLower.includes('tiktok.com')) {
+    return 'TikTok';
+  } else if (urlLower.includes('vimeo.com')) {
+    return 'Vimeo';
+  } else if (urlLower.includes('dailymotion.com')) {
+    return 'Dailymotion';
+  } else if (urlLower.includes('twitch.tv')) {
+    return 'Twitch';
+  } else if (urlLower.includes('reddit.com')) {
+    return 'Reddit';
+  } else if (urlLower.includes('streamable.com')) {
+    return 'Streamable';
+  } else if (urlLower.includes('rumble.com')) {
+    return 'Rumble';
+  } else if (urlLower.includes('bitchute.com')) {
+    return 'BitChute';
+  } else if (urlLower.includes('odysee.com') || urlLower.includes('lbry.tv')) {
+    return 'Odysee';
+  } else if (urlLower.includes('pornhub.com')) {
+    return 'Pornhub';
+  } else if (urlLower.includes('xvideos.com')) {
+    return 'XVideos';
+  } else {
+    return 'Unknown Platform';
+  }
+}
+
+  private static async downloadFromPlatform(item: MediaItem, quality: string = 'high', signal ?: AbortSignal, onProgress ?: (progress: number) => void, startTime ?: string | number, endTime ?: string | number): Promise < void> {
+  const isYouTube = this.isYouTubeUrl(item.url);
+
+  const downloadServices = [
+    // Service 1: Try primary backend (Vercel serverless or local)
+    async () => {
+      return this.tryDownloadWithEndpoint(API_ENDPOINTS.DOWNLOAD_VIDEO, item, quality, signal, startTime, endTime, 'primary');
+    },
+    // Service 2: Fallback backend for YouTube when primary fails with 403
+    ...(isYouTube ? [async () => {
+      console.log('🔄 DownloadService: Trying fallback backend for YouTube download');
+      return this.tryDownloadWithEndpoint(FALLBACK_API_ENDPOINTS.DOWNLOAD_VIDEO, item, quality, signal, startTime, endTime, 'fallback');
+    }] : [])
+  ];
+
+  let lastError: Error | null = null;
+
+  for(let i = 0; i <downloadServices.length; i++) {
+  try {
+    await downloadServices[i]();
+    return;
+  } catch (error) {
+    lastError = error as Error;
+    console.log(`❌ DownloadService: Service ${i + 1} failed:`, lastError.message);
+
+    // For YouTube 403 errors, continue to fallback. For other errors, break early
+    if (!isYouTube || !lastError.message.includes('403') || i === downloadServices.length - 1) {
+      // Don't continue for non-YouTube or if this was the last service
+      if (i < downloadServices.length - 1 && isYouTube && lastError.message.includes('403')) {
+        console.log('🔄 DownloadService: YouTube 403 error detected, trying fallback backend...');
+        continue;
+      }
+      break;
     }
   }
+}
 
-  private static async downloadFromPlatform(item: MediaItem, quality: string = 'high', signal?: AbortSignal, onProgress?: (progress: number) => void, startTime?: string | number, endTime?: string | number): Promise<void> {
-    const isYouTube = this.isYouTubeUrl(item.url);
+if (lastError?.message.includes('Requested format is not available')) {
+  throw new Error(`🚫 This video does not have any downloadable formats available. It might be restricted or only contain image formats.`);
+}
 
-    const downloadServices = [
-      // Service 1: Try primary backend (Vercel serverless or local)
-      async () => {
-        return this.tryDownloadWithEndpoint(API_ENDPOINTS.DOWNLOAD_VIDEO, item, quality, signal, startTime, endTime, 'primary');
-      },
-      // Service 2: Fallback backend for YouTube when primary fails with 403
-      ...(isYouTube ? [async () => {
-        console.log('🔄 DownloadService: Trying fallback backend for YouTube download');
-        return this.tryDownloadWithEndpoint(FALLBACK_API_ENDPOINTS.DOWNLOAD_VIDEO, item, quality, signal, startTime, endTime, 'fallback');
-      }] : [])
-    ];
-
-    let lastError: Error | null = null;
-
-    for (let i = 0; i < downloadServices.length; i++) {
-      try {
-        await downloadServices[i]();
-        return;
-      } catch (error) {
-        lastError = error as Error;
-        console.log(`❌ DownloadService: Service ${i + 1} failed:`, lastError.message);
-
-        // For YouTube 403 errors, continue to fallback. For other errors, break early
-        if (!isYouTube || !lastError.message.includes('403') || i === downloadServices.length - 1) {
-          // Don't continue for non-YouTube or if this was the last service
-          if (i < downloadServices.length - 1 && isYouTube && lastError.message.includes('403')) {
-            console.log('🔄 DownloadService: YouTube 403 error detected, trying fallback backend...');
-            continue;
-          }
-          break;
-        }
-      }
-    }
-
-    if (lastError?.message.includes('Requested format is not available')) {
-      throw new Error(`🚫 This video does not have any downloadable formats available. It might be restricted or only contain image formats.`);
-    }
-
-    throw new Error(`All download services failed for ${this.getPlatformName(item.url)}. Last error: ${lastError?.message}`);
+throw new Error(`All download services failed for ${this.getPlatformName(item.url)}. Last error: ${lastError?.message}`);
   }
 
   private static async tryDownloadWithEndpoint(
-    endpoint: string,
-    item: MediaItem,
-    quality: string,
-    signal?: AbortSignal,
-    startTime?: string | number,
-    endTime?: string | number,
-    serviceName: string = 'unknown'
-  ): Promise<void> {
-    // Create a timeout controller for large file downloads (5 minutes)
-    const timeoutController = new AbortController();
-    const timeoutId = setTimeout(() => timeoutController.abort(), 300000);
+  endpoint: string,
+  item: MediaItem,
+  quality: string,
+  signal ?: AbortSignal,
+  startTime ?: string | number,
+  endTime ?: string | number,
+  serviceName: string = 'unknown'
+): Promise < void> {
+  // Create a timeout controller for large file downloads (5 minutes)
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), 300000);
 
-    // Combine the existing signal with timeout signal
-    let combinedSignal = timeoutController.signal;
-    if (signal) {
-      // If AbortSignal.any is available (newer browsers), use it
-      if (typeof AbortSignal.any === 'function') {
-        combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
-      } else {
-        // Fallback: listen to the original signal and abort timeout controller
-        signal.addEventListener('abort', () => timeoutController.abort());
-        combinedSignal = timeoutController.signal;
-      }
+  // Combine the existing signal with timeout signal
+  let combinedSignal = timeoutController.signal;
+  if(signal) {
+    // If AbortSignal.any is available (newer browsers), use it
+    if (typeof AbortSignal.any === 'function') {
+      combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
+    } else {
+      // Fallback: listen to the original signal and abort timeout controller
+      signal.addEventListener('abort', () => timeoutController.abort());
+      combinedSignal = timeoutController.signal;
     }
+  }
 
     try {
-      const requestBody: DownloadRequest = {
-        url: item.url,
-        filename: item.filename,
-        quality: quality,
-        sessionId: this.sessionId,
-        ...(startTime !== undefined && { startTime }),
-        ...(endTime !== undefined && { endTime })
-      };
+    const requestBody: DownloadRequest = {
+      url: item.url,
+      filename: item.filename,
+      quality: quality,
+      sessionId: this.sessionId,
+      ...(startTime !== undefined && { startTime }),
+      ...(endTime !== undefined && { endTime })
+    };
 
-      console.log(`📡 DownloadService: Making fetch request to ${endpoint} (${serviceName})`);
-      // Debug: log the request body including selected quality and times
-      try {
-        console.log('📡 DownloadService: Request body payload', {
-          url: requestBody.url,
-          filename: requestBody.filename,
-          quality: requestBody.quality,
-          sessionId: requestBody.sessionId,
-          startTime: requestBody.startTime,
-          endTime: requestBody.endTime,
-        });
-      } catch (e) {
-        // Non-blocking: ensure logging doesn't interfere with download
-      }
+    console.log(`📡 DownloadService: Making fetch request to ${endpoint} (${serviceName})`);
+    // Debug: log the request body including selected quality and times
+    try {
+      console.log('📡 DownloadService: Request body payload', {
+        url: requestBody.url,
+        filename: requestBody.filename,
+        quality: requestBody.quality,
+        sessionId: requestBody.sessionId,
+        startTime: requestBody.startTime,
+        endTime: requestBody.endTime,
+      });
+    } catch(e) {
+      // Non-blocking: ensure logging doesn't interfere with download
+    }
 
       const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody),
-        signal: combinedSignal
-      });
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody),
+      signal: combinedSignal
+    });
 
-      console.log(`✅ DownloadService: Fetch response status: ${response.status} (${serviceName})`);
+    console.log(`✅ DownloadService: Fetch response status: ${response.status} (${serviceName})`);
 
-      clearTimeout(timeoutId);
+    clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      if(!response.ok) {
+  const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
 
-        // Handle authentication errors for Instagram/Facebook/YouTube with helpful messages
-        if (response.status === 403 && errorData.platform) {
-          let errorMessage = '';
-          if (errorData.platform === 'youtube') {
-            errorMessage = `🚫 ${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`;
-          } else if (errorData.platform === 'instagram' || errorData.platform === 'facebook') {
-            errorMessage = errorData.isProduction
-              ? `🚫 ${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`
-              : `${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`;
-          }
-          throw new Error(errorMessage);
-        }
-
-        throw new Error(`Backend download failed (${serviceName}): ${errorData.error || response.statusText}`);
-      }
-
-      // Get the file as a blob and save it
-      const blob = await response.blob();
-      saveAs(blob, item.filename);
-      console.log(`✅ DownloadService: Successfully downloaded via ${serviceName}`);
-      return;
-    } catch (error) {
-      clearTimeout(timeoutId);
-      throw error;
+  // Handle authentication errors for Instagram/Facebook/YouTube with helpful messages
+  if (response.status === 403 && errorData.platform) {
+    let errorMessage = '';
+    if (errorData.platform === 'youtube') {
+      errorMessage = `🚫 ${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`;
+    } else if (errorData.platform === 'instagram' || errorData.platform === 'facebook') {
+      errorMessage = errorData.isProduction
+        ? `🚫 ${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`
+        : `${errorData.error}\n\n${errorData.details}\n\n💡 ${errorData.suggestion}`;
     }
+    throw new Error(errorMessage);
+  }
+
+  throw new Error(`Backend download failed (${serviceName}): ${errorData.error || response.statusText}`);
+}
+
+// Get the file as a blob and save it
+const blob = await response.blob();
+saveAs(blob, item.filename);
+console.log(`✅ DownloadService: Successfully downloaded via ${serviceName}`);
+return;
+    } catch (error) {
+  clearTimeout(timeoutId);
+  throw error;
+}
   }
 
   private static createDownloadLink(url: string, filename: string): void {
-    try {
-      // Create a temporary download link
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      link.target = '_blank';
+  try {
+    // Create a temporary download link
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.target = '_blank';
 
-      // Add to DOM, click, and remove
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (error) {
-      console.error('Failed to create download link:', error);
-      // Fallback: open URL in new tab
-      window.open(url, '_blank');
-    }
+    // Add to DOM, click, and remove
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } catch(error) {
+    console.error('Failed to create download link:', error);
+    // Fallback: open URL in new tab
+    window.open(url, '_blank');
   }
+}
 
   private static extractYouTubeId(url: string): string {
-    // Attempting to extract YouTube ID
+  // Attempting to extract YouTube ID
 
-    // Clean URL by removing fragments and the '?si=' parameter
-    const cleanUrl = url.split('#')[0].split('?si=')[0];
+  // Clean URL by removing fragments and the '?si=' parameter
+  const cleanUrl = url.split('#')[0].split('?si=')[0];
 
-    // Extract YouTube video ID from various URL formats
-    const patterns = [
-      // Standard URL patterns
-      /youtu\.be\/([^/]+)/,
-      /youtube\.com\/watch\?v=([^/&]+)/,
-      /youtube\.com\/embed\/([^/]+)/,
-      /youtube\.com\/v\/([^/]+)/,
+  // Extract YouTube video ID from various URL formats
+  const patterns = [
+    // Standard URL patterns
+    /youtu\.be\/([^/]+)/,
+    /youtube\.com\/watch\?v=([^/&]+)/,
+    /youtube\.com\/embed\/([^/]+)/,
+    /youtube\.com\/v\/([^/]+)/,
 
-      // Shortened URL patterns
-      /youtube\.com\/shorts\/([^/]+)/,
+    // Shortened URL patterns
+    /youtube\.com\/shorts\/([^/]+)/,
 
-      // With additional parameters
-      /youtube\.com\/watch\?.*v=([^/&]+)/,
+    // With additional parameters
+    /youtube\.com\/watch\?.*v=([^/&]+)/,
 
-      // Mobile URLs
-      /m\.youtube\.com\/watch\?v=([^/&]+)/,
+    // Mobile URLs
+    /m\.youtube\.com\/watch\?v=([^/&]+)/,
 
-      // Embedded URLs
-      /youtube\.com\/embed\/([^/]+)/,
-      /youtube-nocookie\.com\/embed\/([^/]+)/,
+    // Embedded URLs
+    /youtube\.com\/embed\/([^/]+)/,
+    /youtube-nocookie\.com\/embed\/([^/]+)/,
 
-      // Live stream URLs
-      /youtube\.com\/live\/([^/]+)/,
+    // Live stream URLs
+    /youtube\.com\/live\/([^/]+)/,
 
-      // Channel URLs with video ID
-      /youtube\.com\/c\/[^/]+\/videos\/([^/]+)/
-    ];
+    // Channel URLs with video ID
+    /youtube\.com\/c\/[^/]+\/videos\/([^/]+)/
+  ];
 
-    // Try each pattern until we find a match
-    for (const pattern of patterns) {
-      const match = cleanUrl.match(pattern);
-      // Trying pattern
-      if (match && match[1] && (match[1].length === 11 || match[1].length === 10)) {
-        // Found video ID
-        return match[1];
-      }
-    }
-
-    // Fallback to original pattern
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|\/videos\/|\/embed\/|\/v\/|\/e\/|watch\?v=|\?v=|&v=|embed\?v=|\/v\/|\/e\/|watch\?v=|\?v=|&v=)([^#&?]*).*/;
-    const fallbackMatch = cleanUrl.match(regExp);
-    // Fallback match
-
-    const result = (fallbackMatch && fallbackMatch[2] && (fallbackMatch[2].length === 11 || fallbackMatch[2].length === 10)) ? fallbackMatch[2] : '';
-    // Final result
-
-    if (!result) {
-      throw new Error(`Could not extract YouTube ID from URL: ${url}`);
-    }
-
-    return result;
-  }
-
-  static async downloadAll(items: MediaItem[]): Promise<void> {
-    const downloadPromises = items.map(item => this.downloadMedia(item));
-
-    try {
-      await Promise.allSettled(downloadPromises);
-    } catch (error) {
-      console.error('Bulk download failed:', error);
-      throw error;
+  // Try each pattern until we find a match
+  for (const pattern of patterns) {
+    const match = cleanUrl.match(pattern);
+    // Trying pattern
+    if (match && match[1] && (match[1].length === 11 || match[1].length === 10)) {
+      // Found video ID
+      return match[1];
     }
   }
 
-  static async downloadWithFFmpeg(item: MediaItem): Promise<void> {
-    // Note: FFmpeg integration would require a backend service or WebAssembly version
-    // For now, we'll show instructions for manual FFmpeg usage
+  // Fallback to original pattern
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|\/videos\/|\/embed\/|\/v\/|\/e\/|watch\?v=|\?v=|&v=|embed\?v=|\/v\/|\/e\/|watch\?v=|\?v=|&v=)([^#&?]*).*/;
+  const fallbackMatch = cleanUrl.match(regExp);
+  // Fallback match
 
-    const ffmpegInstructions = `
+  const result = (fallbackMatch && fallbackMatch[2] && (fallbackMatch[2].length === 11 || fallbackMatch[2].length === 10)) ? fallbackMatch[2] : '';
+  // Final result
+
+  if (!result) {
+    throw new Error(`Could not extract YouTube ID from URL: ${url}`);
+  }
+
+  return result;
+}
+
+  static async downloadAll(items: MediaItem[]): Promise < void> {
+  const downloadPromises = items.map(item => this.downloadMedia(item));
+
+  try {
+    await Promise.allSettled(downloadPromises);
+  } catch(error) {
+    console.error('Bulk download failed:', error);
+    throw error;
+  }
+}
+
+  static async downloadWithFFmpeg(item: MediaItem): Promise < void> {
+  // Note: FFmpeg integration would require a backend service or WebAssembly version
+  // For now, we'll show instructions for manual FFmpeg usage
+
+  const ffmpegInstructions = `
       To download this media with FFmpeg, use the following command:
       
       ffmpeg -i "${item.url}" -c copy "${item.filename}"
@@ -777,9 +775,9 @@ export class DownloadService {
       ffmpeg -i "${item.url}" -c:v libx264 -c:a aac "${item.filename}"
     `;
 
-    // FFmpeg instructions available
+  // FFmpeg instructions available
 
-    // For demo purposes, fall back to regular download
-    await this.downloadDirectMedia(item);
-  }
+  // For demo purposes, fall back to regular download
+  await this.downloadDirectMedia(item);
+}
 }
