@@ -38,7 +38,9 @@ class YouTubeBypassManager {
 
       // 2. If not found, try common locations
       if (!denoPath) {
+        const home = require('os').homedir();
         const commonPaths = [
+          path.join(home, '.deno', 'bin', 'deno'), // Standard install location (~/.deno/bin/deno)
           '/usr/bin/deno',
           '/usr/local/bin/deno',
           '/nix/var/nix/profiles/default/bin/deno',
