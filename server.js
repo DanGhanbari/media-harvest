@@ -3406,8 +3406,99 @@ app.post('/api/video-info', async (req, res) => {
       } else {
         console.error('yt-dlp stderr:', stderr);
 
-        // If formats unavailable or only storyboards, try Android client fallback first
+        // DETECT AUTH FAILURES (Geo-lock or Bot detection)
         const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
+        const isAuthError = isYouTube && (
+          stderr.includes('Sign in to confirm') ||
+          stderr.includes('please sign in') ||
+          stderr.includes('bot') ||
+          stderr.includes('429') ||
+          stderr.includes('LOGIN_REQUIRED')
+        );
+
+        // FALLBACK: Retry WITHOUT COOKIES (Public Access)
+        if (isAuthError) {
+          console.log('⚠️ Authentication/Sign-in error detected during analysis. Retrying without cookies (Public Access)...');
+
+          // Filter out cookie-related args and blocked extractor args
+          let fallbackArgs = ytDlpArgs.filter(arg =>
+            !String(arg).includes('cookies') &&
+            arg !== '--cookies' &&
+            arg !== '--cookies-from-browser' &&
+            arg !== '--write-info-json'
+          );
+
+          // Remove any previous extractor-args to start fresh
+          const eaIndex = fallbackArgs.indexOf('--extractor-args');
+          if (eaIndex > -1) {
+            fallbackArgs.splice(eaIndex, 2);
+          }
+
+          // Add public-friendly args
+          fallbackArgs.push(
+            '--extractor-args', 'youtube:player_client=web_creator,web',
+            '--ignore-no-formats-error',
+            '--no-cookies',
+            '--dump-json' // Ensure we get JSON output
+          );
+
+          // Ensure URL is explicitly added again if missing
+          if (!fallbackArgs.includes(url)) fallbackArgs.push(url);
+
+          const ytDlpPath = await getYtDlpPath();
+          try {
+            // Use execSync for synchronous fallback execution to ensure we block response until done
+            // But since we are async here, spawning is better.
+            // We will just execute it and wait.
+            let command = ytDlpPath;
+            let commandArgs = fallbackArgs;
+            if (ytDlpPath.includes(' ')) {
+              const parts = ytDlpPath.split(' ');
+              command = parts[0];
+              commandArgs = [...parts.slice(1), ...fallbackArgs];
+            }
+
+            const retryProc = spawn(command, commandArgs);
+            let rOut = '';
+            let rErr = '';
+            retryProc.stdout.on('data', d => { rOut += d.toString(); });
+            retryProc.stderr.on('data', d => { rErr += d.toString(); });
+
+            retryProc.on('close', (rCode) => {
+              if (rCode === 0 && rOut.trim()) {
+                try {
+                  const videoInfo = JSON.parse(rOut.trim());
+                  const info = {
+                    title: videoInfo.title || 'Unknown Title',
+                    duration: videoInfo.duration || 0,
+                    durationString: videoInfo.duration_string || '0:00',
+                    uploader: videoInfo.uploader || videoInfo.channel || 'Unknown',
+                    thumbnail: videoInfo.thumbnail,
+                    description: videoInfo.description,
+                    viewCount: videoInfo.view_count,
+                    uploadDate: videoInfo.upload_date,
+                    platform: detectPlatform(url)
+                  };
+                  res.json(info);
+                } catch (e) {
+                  console.error('Fallback JSON parse failed:', e);
+                  res.status(500).json({ error: 'Failed to parse video info from fallback' });
+                }
+              } else {
+                console.error('Fallback failed stderr:', rErr);
+                res.status(500).json({
+                  error: 'Failed to get video information',
+                  details: stderr + '\n' + rErr
+                });
+              }
+            });
+            return; // Exit here if we started the retry
+          } catch (retryEx) {
+            console.error('Fallback execution error:', retryEx);
+          }
+        }
+
+        // Existing fallback for format unavailability
         const formatUnavailable = stderr.includes('Requested format is not available') || stderr.includes('Only images are available');
         if (isYouTube && formatUnavailable) {
           console.log('🧪 Retrying with robust Web Creator client due to unavailable formats');
