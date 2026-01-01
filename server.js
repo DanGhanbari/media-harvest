@@ -1685,21 +1685,24 @@ function detectPlatform(url) {
 
 // Quality format mappings
 // Use separate video+audio for best quality and explicit height caps
+// Quality format mappings
+// Use separate video+audio for best quality and explicit height caps
+// UPDATED: Prefer H.264 (avc) for best compatibility with QuickTime/Finder/VLC
 const qualityFormats = {
-  'maximum': 'bestvideo+bestaudio/best',
-  'high': 'bestvideo[height<=1080]+bestaudio/best',
-  'medium': 'bestvideo[height<=720]+bestaudio/best',
-  'low': 'bestvideo[height<=480]+bestaudio/best',
+  'maximum': 'bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
+  'high': 'bestvideo[height<=1080][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best',
+  'medium': 'bestvideo[height<=720][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best',
+  'low': 'bestvideo[height<=480][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best',
   'audio': 'bestaudio/best'
 }
 
 // Alternative format strategies for bypassing restrictions
 // Fall back to single-file best when separate streams aren’t available
 const alternativeFormats = {
-  'maximum': ['bestvideo+bestaudio/best', 'best'],
-  'high': ['bestvideo[height<=1080]+bestaudio/best', 'best[height<=1080]/best'],
-  'medium': ['bestvideo[height<=720]+bestaudio/best', 'best[height<=720]/best'],
-  'low': ['bestvideo[height<=480]+bestaudio/best', 'best[height<=480]/best'],
+  'maximum': ['bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/best', 'best'],
+  'high': ['bestvideo[height<=1080][vcodec^=avc]+bestaudio[ext=m4a]/best', 'best[height<=1080]/best'],
+  'medium': ['bestvideo[height<=720][vcodec^=avc]+bestaudio[ext=m4a]/best', 'best[height<=720]/best'],
+  'low': ['bestvideo[height<=480][vcodec^=avc]+bestaudio[ext=m4a]/best', 'best[height<=480]/best'],
   'audio': ['bestaudio', 'best']
 }
 
@@ -2734,7 +2737,8 @@ app.post('/api/download-video', async (req, res) => {
             });
 
             // If multiple files (carousel post), create a zip archive
-            if (sortedFiles.length > 1 && platform === 'instagram') {
+            // Also check for images in case of Instagram mixed content
+            if (files.length > 1 && platform === 'instagram') {
 
               const zipFilename = `${filename || 'instagram_carousel'}.zip`;
               res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
@@ -2745,13 +2749,25 @@ app.post('/api/download-video', async (req, res) => {
               // Handle client disconnect
               res.on('close', () => {
                 archive.destroy();
-                fs.rmSync(tempDir, { recursive: true, force: true });
+                // We don't delete tempDir here immediately as 'end' or 'error' will handle it, 
+                // or the main flow might if we aren't careful. 
+                // But generally safe to rely on end/error/aborted logic.
               });
 
-              // Handle archive errors
+              // Handle archive warnings/errors
+              archive.on('warning', (err) => {
+                if (err.code === 'ENOENT') {
+                  console.warn('Archive warning:', err);
+                } else {
+                  console.error('Archive error/warning:', err);
+                }
+              });
+
               archive.on('error', (err) => {
-                console.error('Archive error:', err);
-                res.status(500).json({ error: 'Failed to create archive' });
+                console.error('Archive CRITICAL error:', err);
+                if (!res.headersSent) {
+                  res.status(500).json({ error: 'Failed to create archive' });
+                }
                 fs.rmSync(tempDir, { recursive: true, force: true });
               });
 
