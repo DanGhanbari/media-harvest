@@ -43,6 +43,7 @@ class YouTubeBypassManager {
         console.log(`🔍 Debug: Current User: ${os.userInfo().username}, Home: ${home}, CWD: ${cwd}`);
 
         const commonPaths = [
+          path.join(cwd, 'deno', 'bin', 'deno'), // Visible local install (/app/deno)
           path.join(cwd, '.deno', 'bin', 'deno'), // Local install in project root (most reliable)
           path.join(home, '.deno', 'bin', 'deno'),
           '/usr/bin/deno',
@@ -61,6 +62,19 @@ class YouTubeBypassManager {
             process.env.PATH = `${deniedDir}${path.delimiter}${process.env.PATH}`;
             break;
           }
+        }
+
+        // Deep Debug: If still not found, list cwd contents to see where it went
+        if (!denoPath) {
+          console.log('🔍 Debug: Listing /app contents:');
+          try {
+            const files = fs.readdirSync(cwd);
+            console.log(files.join(', '));
+            if (files.includes('deno')) {
+              console.log('🔍 Debug: Listing /app/deno contents:');
+              console.log(fs.readdirSync(path.join(cwd, 'deno')).join(', '));
+            }
+          } catch (e) { console.log('Current dir list failed', e); }
         }
       }
 
