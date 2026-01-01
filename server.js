@@ -3408,12 +3408,13 @@ app.post('/api/video-info', async (req, res) => {
 
         // DETECT AUTH FAILURES (Geo-lock or Bot detection)
         const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
+        const errLower = stderr.toLowerCase();
         const isAuthError = isYouTube && (
-          stderr.includes('Sign in to confirm') ||
-          stderr.includes('please sign in') ||
-          stderr.includes('bot') ||
-          stderr.includes('429') ||
-          stderr.includes('LOGIN_REQUIRED')
+          errLower.includes('sign in to confirm') ||
+          errLower.includes('please sign in') ||
+          errLower.includes('bot') ||
+          errLower.includes('429') ||
+          errLower.includes('login_required')
         );
 
         // FALLBACK: Retry WITHOUT COOKIES (Public Access)
