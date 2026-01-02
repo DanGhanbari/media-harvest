@@ -12,7 +12,38 @@ import { API_ENDPOINTS } from '@/config/api';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { Layers, PlayCircle, History, Trash2 } from 'lucide-react';
+import { Layers, PlayCircle, History, Trash2, FolderOpen, StopCircle } from 'lucide-react';
+
+// File System Access API Types
+interface FileSystemHandle {
+  kind: 'file' | 'directory';
+  name: string;
+}
+
+interface FileSystemFileHandle extends FileSystemHandle {
+  kind: 'file';
+  getFile(): Promise<File>;
+}
+
+interface FileSystemWritableFileStream extends WritableStream {
+  write(data: BufferSource | Blob | string): Promise<void>;
+  seek(position: number): Promise<void>;
+  truncate(size: number): Promise<void>;
+}
+
+interface FileSystemDirectoryHandle extends FileSystemHandle {
+  kind: 'directory';
+  values(): AsyncIterableIterator<FileSystemHandle>;
+  getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<FileSystemDirectoryHandle>;
+  getFileHandle(name: string, options?: { create?: boolean }): Promise<FileSystemFileHandle>;
+}
+
+// Augment Window interface
+declare global {
+  interface Window {
+    showDirectoryPicker(options?: { mode?: 'read' | 'readwrite' }): Promise<FileSystemDirectoryHandle>;
+  }
+}
 
 interface AudioChannel {
   index: number;
@@ -45,6 +76,35 @@ export const VideoConverter = () => {
     error?: string;
   }>>([]);
   const [activeTab, setActiveTab] = useState('manual');
+
+  // Local Watch Folder State
+  const [watchHandle, setWatchHandle] = useState<FileSystemDirectoryHandle | null>(null);
+  const [isWatching, setIsWatching] = useState(false);
+  const [processedFiles, setProcessedFiles] = useState<Set<string>>(new Set());
+  const [watchInterval, setWatchInterval] = useState<NodeJS.Timeout | null>(null);
+
+  // Ref to access watchHandle inside closures (setInterval)
+  const watchHandleRef = React.useRef<FileSystemDirectoryHandle | null>(null);
+
+  // Update ref when state changes
+  React.useEffect(() => {
+    watchHandleRef.current = watchHandle;
+  }, [watchHandle]);
+
+  // Refs for settings to avoid stale closures in processing loop
+  const formatRef = React.useRef(format);
+  const qualityRef = React.useRef(quality);
+  const resolutionRef = React.useRef(resolution);
+  const leftChannelRef = React.useRef(leftChannel);
+  const rightChannelRef = React.useRef(rightChannel);
+
+  React.useEffect(() => {
+    formatRef.current = format;
+    qualityRef.current = quality;
+    resolutionRef.current = resolution;
+    leftChannelRef.current = leftChannel;
+    rightChannelRef.current = rightChannel;
+  }, [format, quality, resolution, leftChannel, rightChannel]);
 
   const { toast } = useToast();
 
@@ -207,7 +267,134 @@ export const VideoConverter = () => {
     }
   };
 
-  // Watch Mode Logic
+
+
+  // ---------------------------------------------------------------------------
+  // Local Watch Folder Logic (File System Access API)
+  // ---------------------------------------------------------------------------
+  const handleSelectWatchFolder = async () => {
+    try {
+      if (!window.showDirectoryPicker) {
+        toast({
+          title: "Browser Not Supported",
+          description: "Your browser does not support the File System Access API. Please use Chrome, Edge, or Opera.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      setWatchHandle(handle);
+      setIsWatching(true);
+      setProcessedFiles(new Set()); // Reset history for new folder
+
+      toast({
+        title: "Folder Selected",
+        description: `Watching: ${handle.name}`,
+      });
+
+      // Start Polling
+      startPolling(handle);
+
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        console.error('Error selecting folder:', error);
+        toast({
+          title: "Error",
+          description: "Failed to access folder.",
+          variant: "destructive"
+        });
+      }
+    }
+  };
+
+  const stopWatching = () => {
+    if (watchInterval) {
+      clearInterval(watchInterval);
+      setWatchInterval(null);
+    }
+    setIsWatching(false);
+    setWatchHandle(null);
+  };
+
+  const startPolling = (handle: FileSystemDirectoryHandle) => {
+    // Initial scan
+    scanWatchFolder(handle);
+
+    // Poll every 5 seconds
+    const interval = setInterval(() => {
+      scanWatchFolder(handle);
+    }, 5000);
+    setWatchInterval(interval);
+  };
+
+
+
+  // Use a Ref for processed files to avoid stale closures in setInterval
+  const processedFilesRef = React.useRef<Set<string>>(new Set());
+
+  // Update the scan function to use the Ref
+  // Update the scan function to use the Ref
+  const scanWatchFolder = async (handle: FileSystemDirectoryHandle) => {
+    try {
+      console.log('📂 Scanning watch folder:', handle.name);
+      for await (const entry of handle.values()) {
+        if (entry.kind === 'file') {
+          const isVideo = entry.name.match(/\.(mp4|webm|avi|mov|mkv|flv|wmv|m4v|mxf)$/i);
+          if (isVideo) {
+            if (!processedFilesRef.current.has(entry.name)) {
+              console.log('✨ New file detected:', entry.name);
+              // Add to processed IMMEDIATELY to prevent double-add next poll
+              processedFilesRef.current.add(entry.name);
+
+              // Get the file
+              const fileHandle = await handle.getFileHandle(entry.name);
+              const file = await fileHandle.getFile();
+
+              // Add to Queue
+              const newItem = {
+                id: Math.random().toString(36).substring(7),
+                file: file,
+                status: 'queued' as const,
+                progress: 0
+              };
+
+              setWatchQueue(prev => {
+                const newState = [...prev, newItem];
+                // Trigger processing if idle (handled by recursive logic, but we need to kickstart if stopped)
+                // Actually processNextInQueue handles the "next", but if queue was empty, we need to start it.
+                // The original logic calls processNextInQueue immediately after adding.
+                // We can't easily call it here with the NEW state.
+                // But we can trigger it in a useEffect or just call it with the new array.
+
+                // WORKAROUND: Call processNextInQueue with the new derived state
+                // We need to be careful not to create infinite loops or race conditions.
+                // The simplistic 'processNextInQueue' takes the queue as arg.
+                setTimeout(() => processNextInQueue(newState), 100);
+                return newState;
+              });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error scanning folder:", err);
+    }
+  };
+
+
+
+  // Clean up interval on unmount
+  React.useEffect(() => {
+    return () => {
+      if (watchInterval) clearInterval(watchInterval);
+    };
+  }, [watchInterval]);
+
+
+  // ---------------------------------------------------------------------------
+  // Existing Watch Mode Logic (Drag & Drop)
+  // ---------------------------------------------------------------------------
   const handleWatchDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -250,19 +437,95 @@ export const VideoConverter = () => {
     ));
 
     try {
-      await VideoConversionService.convertVideo(
+      // Use Ref to check for watch handle (avoids stale closures)
+      const currentWatchHandle = watchHandleRef.current;
+      const skipDownload = !!currentWatchHandle; // Skip browser download if we have a folder handle
+
+
+      const resultBlob = await VideoConversionService.convertVideo(
         next.file,
-        format,
-        quality,
+        formatRef.current, // Use Ref to get latest format
+        qualityRef.current, // Use Ref to get latest quality
         (progress) => {
           setWatchQueue(prev => prev.map(i =>
             i.id === next.id ? { ...i, progress } : i
           ));
         },
-        leftChannel,
-        rightChannel,
-        resolution
+        leftChannelRef.current, // Use Ref
+        rightChannelRef.current, // Use Ref
+        resolutionRef.current, // Use Ref
+        skipDownload
       );
+
+      // Helper to verify permissions
+      const verifyPermission = async (fileHandle: FileSystemHandle, readWrite: boolean) => {
+        const options = { mode: readWrite ? 'readwrite' : 'read' };
+        // @ts-ignore
+        if ((await fileHandle.queryPermission(options)) === 'granted') {
+          return true;
+        }
+        // @ts-ignore
+        if ((await fileHandle.requestPermission(options)) === 'granted') {
+          return true;
+        }
+        return false;
+      };
+
+      // If we are in "Active Watch Mode" (watchHandle exists), save to 'converted_output'
+      if (currentWatchHandle && resultBlob instanceof Blob) {
+
+        try {
+          console.log('📂 Attempting to save to local file system...');
+
+          // Verify write permission on the directory handle
+          const hasPermission = await verifyPermission(currentWatchHandle, true);
+          if (!hasPermission) {
+            throw new Error('Write permission denied by user');
+          }
+
+          // 1. Get or Create 'converted_output' folder
+          console.log('📂 Getting/Creating output directory...');
+          const outputDir = await currentWatchHandle.getDirectoryHandle('converted_output', { create: true });
+
+          // 2. Create file handle
+          const newFileName = `converted_${next.file.name.substring(0, next.file.name.lastIndexOf('.'))}.${formatRef.current}`;
+          console.log(`📂 Creating file: ${newFileName}`);
+          const fileHandle = await outputDir.getFileHandle(newFileName, { create: true });
+
+          // 3. Write data
+          console.log('📂 Writing data...');
+          // @ts-ignore - TS might complain about createWritable not being standard yet
+          const writable = await fileHandle.createWritable();
+          await writable.write(resultBlob);
+          await writable.close();
+          console.log('✅ File write complete.');
+
+          toast({
+            title: "File Saved",
+            description: `Saved to converted_output/${newFileName}`,
+          });
+
+        } catch (fsError) {
+          console.error('File System Write Error:', fsError);
+          // Show persistent error toast
+          toast({
+            title: "Save Failed",
+            description: `Could not save file: ${(fsError as Error).message}. Check browser permissions.`,
+            variant: "destructive",
+            duration: 10000,
+          });
+          throw new Error(`Failed to write to disk: ${(fsError as Error).message}`);
+        }
+      } else {
+        // Standard Auto-Download (handled by Service if skipDownload=false, or if we want to handle it here?)
+        // Currently Service handles it if skipDownload=false.
+        // If skipDownload=true, we get blob, but if watchHandle is null (meaning manual drop), we SHOULD download it.
+        // Logic fix:
+        // if watchHandle is present -> skipDownload=true -> save to FS.
+        // if watchHandle is null -> skipDownload=false -> Service downloads.
+        // The only case where resultBlob is returned is if skipDownload=true.
+        // So we are good.
+      }
 
       setWatchQueue(prev => prev.map(i =>
         i.id === next.id ? { ...i, status: 'completed', progress: 100 } : i
@@ -708,6 +971,49 @@ export const VideoConverter = () => {
                   </div>
                   {/* Visual Scanner Effect */}
                   <div className="absolute top-0 left-0 w-full h-1 bg-primary/50 shadow-[0_0_20px_rgba(var(--primary),0.5)] animate-[scan_2s_ease-in-out_infinite]" />
+                </Card>
+
+                {/* Local Folder Selection (Active Watch) */}
+                <Card className="p-6 shadow-card border-primary/20 bg-muted/20">
+                  <div className="flex items-center gap-2 mb-4">
+                    <FolderOpen className="w-5 h-5 text-primary" />
+                    <h3 className="text-lg font-semibold">Local Watch Folder</h3>
+                  </div>
+
+                  {!isWatching ? (
+                    <div className="text-center">
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Select a local folder to constantly watch. Any video added to it will be automatically converted.
+                      </p>
+                      <Button onClick={handleSelectWatchFolder} variant="outline" className="w-full border-dashed h-12">
+                        <FolderOpen className="w-4 h-4 mr-2" />
+                        Select Folder to Watch
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="bg-background border rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                          <span className="font-medium truncate text-sm" title={watchHandle?.name}>
+                            Watching: {watchHandle?.name}
+                          </span>
+                        </div>
+                        <Button onClick={() => {
+                          stopWatching();
+                          // handleSelectWatchFolder(); // Allow re-select? Or just stop?
+                        }} variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive">
+                          <StopCircle className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Scanning every 5s. Output will be saved to <b>/converted_output</b> subfolder.
+                      </p>
+                      <Button onClick={stopWatching} variant="destructive" size="sm" className="w-full mt-3 h-8 text-xs">
+                        Stop Watching
+                      </Button>
+                    </div>
+                  )}
                 </Card>
               </div>
 

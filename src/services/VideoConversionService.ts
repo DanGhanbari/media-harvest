@@ -35,7 +35,7 @@ export class VideoConversionService {
   private static ws: WebSocket | null = null;
   private static progressCallbacks = new Map<string, (progress: number, details?: ProgressDetails) => void>();
   private static sessionId: string = Math.random().toString(36).substring(2, 15);
-  
+
   static {
     console.log('🔧 CLIENT DEBUG: VideoConversionService sessionId generated:', this.sessionId);
   }
@@ -46,9 +46,9 @@ export class VideoConversionService {
     }
 
     // Check if we're on Vercel (serverless platform that doesn't support WebSockets)
-    const isVercel = window.location.hostname.includes('vercel.app') || 
-                     window.location.hostname.includes('vercel.com');
-    
+    const isVercel = window.location.hostname.includes('vercel.app') ||
+      window.location.hostname.includes('vercel.com');
+
     if (isVercel) {
       console.log('🔌 CLIENT DEBUG: Vercel environment detected - WebSocket connections not supported on serverless platforms');
       console.log('🔌 CLIENT DEBUG: Video conversion will work without real-time progress updates');
@@ -68,10 +68,10 @@ export class VideoConversionService {
       const protocol = (apiUrl.protocol === 'https:' && useSecure) ? 'wss:' : 'ws:';
       wsUrl = `${protocol}//${apiUrl.host}`;
     }
-    
+
     console.log(`Attempting WebSocket connection to: ${wsUrl}`);
     this.ws = new WebSocket(wsUrl);
-    
+
     this.ws.onopen = () => {
       console.log('🔌 CLIENT DEBUG: WebSocket connected for conversion progress tracking');
       // Register session with server
@@ -82,7 +82,7 @@ export class VideoConversionService {
       console.log('🔌 CLIENT DEBUG: Sending registration message:', registerMessage);
       this.ws?.send(JSON.stringify(registerMessage));
     };
-    
+
     this.ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
@@ -99,14 +99,14 @@ export class VideoConversionService {
         console.error('Error parsing WebSocket message:', error);
       }
     };
-    
+
     this.ws.onclose = () => {
       console.log('WebSocket disconnected');
       this.ws = null;
       // Attempt to reconnect after 3 seconds
       setTimeout(() => this.initWebSocket(), 3000);
     };
-    
+
     this.ws.onerror = (error) => {
       console.error('WebSocket error:', error);
       // If wss:// fails in production, try fallback to ws://
@@ -145,12 +145,13 @@ export class VideoConversionService {
     onProgress?: (progress: number) => void,
     leftChannel?: number,
     rightChannel?: number,
-    resolution?: string
-  ): Promise<void> {
+    resolution?: string,
+    skipDownload: boolean = false
+  ): Promise<Blob | void> {
     console.log('🔧 CLIENT DEBUG: VideoConversionService: Starting conversion', { file: file.name, format, quality, sessionId: this.sessionId });
-    
+
     const conversionId = file.name;
-    
+
     // Check if conversion is already active
     if (this.activeConversions.has(conversionId)) {
       throw new Error('Conversion already in progress for this item');
@@ -164,10 +165,10 @@ export class VideoConversionService {
     if (onProgress) {
       console.log('VideoConversionService: Registering progress callback');
       this.progressCallbacks.set('conversion', onProgress);
-      
+
       // If WebSocket is not available (e.g., on Vercel), provide a fallback message
-      const isVercel = window.location.hostname.includes('vercel.app') || 
-                       window.location.hostname.includes('vercel.com');
+      const isVercel = window.location.hostname.includes('vercel.app') ||
+        window.location.hostname.includes('vercel.com');
       if (isVercel) {
         console.log('🔧 CLIENT DEBUG: WebSocket not available - progress updates will not be real-time');
         // Optionally call progress callback with initial state
@@ -180,22 +181,22 @@ export class VideoConversionService {
 
     try {
       const formData = new FormData();
-      
+
       formData.append('video', file);
-      
+
       formData.append('format', format);
       formData.append('quality', quality);
-      
+
       // Add session ID for progress tracking
       console.log('🔧 CLIENT DEBUG: Adding sessionId to FormData:', this.sessionId);
       formData.append('sessionId', this.sessionId);
-      
+
       // Add channel selection if specified
       if (leftChannel !== undefined && leftChannel !== null && rightChannel !== undefined && rightChannel !== null) {
         formData.append('leftChannel', leftChannel.toString());
         formData.append('rightChannel', rightChannel.toString());
       }
-      
+
       // Add resolution if specified
       if (resolution && resolution !== 'original') {
         formData.append('resolution', resolution);
@@ -216,29 +217,34 @@ export class VideoConversionService {
 
       // Handle file download
       const blob = await response.blob();
-      const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = `converted_video.${format}`;
-      
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-        if (filenameMatch) {
-          filename = filenameMatch[1];
-        }
-      }
 
-      // Create download link
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(downloadUrl);
+      if (!skipDownload) {
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = `converted_video.${format}`;
+
+        if (contentDisposition) {
+          const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+          if (filenameMatch) {
+            filename = filenameMatch[1];
+          }
+        }
+
+        // Create download link
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(downloadUrl);
+      }
 
       if (onProgress) {
         onProgress(100);
       }
+
+      return blob;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new Error('Conversion was cancelled');
