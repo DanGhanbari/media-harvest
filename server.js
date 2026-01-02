@@ -1491,8 +1491,13 @@ const corsOptions = {
       allowedOrigins.push('https://media-harvest.vercel.app');
     }
 
-    // In development, allow all origins
-    if (process.env.NODE_ENV !== 'production') {
+    // Check for Vercel deployments (generic)
+    if (origin && (origin.endsWith('.vercel.app') || origin.includes('vercel.app'))) {
+      allowedOrigins.push(origin);
+    }
+
+    // In development or if CORS check is disabled, allow all
+    if (process.env.NODE_ENV !== 'production' || process.env.DISABLE_CORS_CHECK === 'true') {
       return callback(null, true);
     }
 
@@ -1500,12 +1505,14 @@ const corsOptions = {
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      console.error(`❌ CORS blocked request from origin: ${origin}`);
+      console.log('Allowed origins:', allowedOrigins);
+      callback(new Error(`Not allowed by CORS (Origin: ${origin})`));
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
 };
 
 // Middleware
