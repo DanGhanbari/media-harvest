@@ -7,6 +7,8 @@ import Index from "./pages/Index";
 import VideoConverterPage from "./pages/VideoConverter";
 import NotFound from "./pages/NotFound";
 
+import { Analytics } from "@vercel/analytics/react";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -14,6 +16,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <Analytics />
       <BrowserRouter
         future={{
           v7_startTransition: true,
