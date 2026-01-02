@@ -315,10 +315,24 @@ export const VideoConverter = () => {
         </div>
 
         <Tabs defaultValue="manual" value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-8">
-            <TabsTrigger value="manual" className="text-lg py-3">Manual Mode</TabsTrigger>
-            <TabsTrigger value="watch" className="text-lg py-3">Watch Folder Mode</TabsTrigger>
-          </TabsList>
+          <div className="flex justify-center mb-8">
+            <TabsList className="grid w-full max-w-lg grid-cols-2 h-14 bg-muted/50 p-1 rounded-full border border-border/50 backdrop-blur-sm">
+              <TabsTrigger
+                value="manual"
+                className="rounded-full text-base font-medium data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm transition-all duration-300 flex items-center justify-center gap-2"
+              >
+                <FileVideo className="w-4 h-4" />
+                Manual Mode
+              </TabsTrigger>
+              <TabsTrigger
+                value="watch"
+                className="rounded-full text-base font-medium data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm transition-all duration-300 flex items-center justify-center gap-2"
+              >
+                <Layers className="w-4 h-4" />
+                Watch Folder Mode
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent value="manual">
             {/* File Upload */}
