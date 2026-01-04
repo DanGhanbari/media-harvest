@@ -34,13 +34,13 @@ export const MediaDownloader = () => {
   const [progress, setProgress] = useState(0);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
-  const [videoInfo, setVideoInfo] = useState<{[key: string]: {duration: number, title: string}}>({});
-  const [showTimeSelector, setShowTimeSelector] = useState<{[key: string]: boolean}>({});
-  const [selectedTimeRanges, setSelectedTimeRanges] = useState<{[key: string]: {start: number, end: number}}>({});
+  const [videoInfo, setVideoInfo] = useState<{ [key: string]: { duration: number, title: string } }>({});
+  const [showTimeSelector, setShowTimeSelector] = useState<{ [key: string]: boolean }>({});
+  const [selectedTimeRanges, setSelectedTimeRanges] = useState<{ [key: string]: { start: number, end: number } }>({});
   const [qualityOptions, setQualityOptions] = useState<QualityOption[]>([]);
-  const [selectedQuality, setSelectedQuality] = useState<{[key: string]: string}>({});
-  const [segmentDownloading, setSegmentDownloading] = useState<{[key: string]: boolean}>({});
-  const [segmentProgress, setSegmentProgress] = useState<{[key: string]: number}>({});
+  const [selectedQuality, setSelectedQuality] = useState<{ [key: string]: string }>({});
+  const [segmentDownloading, setSegmentDownloading] = useState<{ [key: string]: boolean }>({});
+  const [segmentProgress, setSegmentProgress] = useState<{ [key: string]: number }>({});
   const { toast } = useToast();
 
   // Load quality options on component mount
@@ -79,27 +79,27 @@ export const MediaDownloader = () => {
       // Check for YouTube videos and get their duration info
       console.log('=== ANALYSIS PROCESS START ===');
       console.log('Processing media items:', items);
-      const newVideoInfo: {[key: string]: {duration: number, title: string}} = {};
-      
+      const newVideoInfo: { [key: string]: { duration: number, title: string } } = {};
+
       for (const item of items) {
         console.log('\n--- Processing item ---');
         console.log('Item URL:', item.url);
         console.log('Item type:', item.type);
         console.log('Is YouTube URL?', item.url.includes('youtube.com') || item.url.includes('youtu.be'));
-        
+
         if (item.type === 'video' && (item.url.includes('youtube.com') || item.url.includes('youtu.be'))) {
           console.log('✓ YouTube video detected, fetching info...');
           try {
             const videoData = await DownloadService.checkIfLongVideo(item.url);
             console.log('Raw video data received:', JSON.stringify(videoData, null, 2));
-            
+
             if (videoData && videoData.videoInfo) {
               const duration = videoData.videoInfo.duration || videoData.duration;
               const title = videoData.videoInfo.title || 'Unknown Video';
               console.log('Extracted duration:', duration, 'seconds');
               console.log('Extracted title:', title);
               console.log('Duration > 960 seconds?', duration > 960);
-              
+
               newVideoInfo[item.url] = { duration, title };
               console.log('✓ Video info stored for', item.url, ':', newVideoInfo[item.url]);
             } else {
@@ -112,7 +112,7 @@ export const MediaDownloader = () => {
           console.log('⏭️ Skipping non-YouTube video or non-video item');
         }
       }
-      
+
       console.log('\n=== FINAL RESULTS ===');
       console.log('Final videoInfo state:', JSON.stringify(newVideoInfo, null, 2));
       console.log('Number of videos processed:', Object.keys(newVideoInfo).length);
@@ -158,7 +158,7 @@ export const MediaDownloader = () => {
   };
 
   return (
-    <div className="min-h-screen p-6">
+    <div className="min-h-screen p-4 md:p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">
@@ -166,7 +166,7 @@ export const MediaDownloader = () => {
             <div className="p-3 rounded-2xl gradient-primary shadow-glow">
               <Download className="w-8 h-8 text-primary-foreground" />
             </div>
-            <h1 className="text-5xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+            <h1 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
               Media Harvest
             </h1>
           </div>
@@ -177,7 +177,7 @@ export const MediaDownloader = () => {
         </div>
 
         {/* URL Input */}
-        <Card className="p-8 mb-8 shadow-card">
+        <Card className="p-4 md:p-8 mb-8 shadow-card">
           <div className="flex flex-col gap-6">
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="flex-1 relative">
@@ -204,7 +204,7 @@ export const MediaDownloader = () => {
               <div className="flex gap-2">
                 <Button
                   onClick={handleAnalyze}
-                  className="h-14 px-8 text-lg"
+                  className="h-14 px-8 text-lg w-full sm:w-auto"
                   disabled={isAnalyzing}
                 >
                   {isAnalyzing ? (
@@ -286,41 +286,41 @@ export const MediaDownloader = () => {
 
             {/* Media Grid */}
             <MediaGrid items={mediaItems} />
-            
+
             {/* Time Range Selector - positioned after media grid */}
             {(() => {
               console.log('\n=== TIME SELECTOR RENDER CHECK ===');
               console.log('mediaItems.length:', mediaItems.length);
               console.log('mediaItems:', mediaItems);
               console.log('videoInfo state:', videoInfo);
-              
+
               const hasLongYouTubeVideo = mediaItems.some(item => {
                 const isVideo = item.type === 'video';
                 const isYouTube = item.url.includes('youtube.com') || item.url.includes('youtu.be');
                 const hasVideoInfo = videoInfo[item.url];
                 const isLong = hasVideoInfo && videoInfo[item.url].duration > 960;
-                
+
                 console.log(`Item ${item.url}:`);
                 console.log('  - Is video:', isVideo);
                 console.log('  - Is YouTube:', isYouTube);
                 console.log('  - Has video info:', !!hasVideoInfo);
                 console.log('  - Duration:', hasVideoInfo ? videoInfo[item.url].duration : 'N/A');
                 console.log('  - Is long (>960s):', isLong);
-                
+
                 return isVideo && isYouTube && hasVideoInfo && isLong;
               });
-              
+
               console.log('Should show TimeRangeSelector:', hasLongYouTubeVideo);
               console.log('=== END TIME SELECTOR CHECK ===\n');
-              
+
               return hasLongYouTubeVideo ? (
                 <Card className="p-8 mb-8 shadow-card">
                   <div className="space-y-6">
                     {mediaItems
-                      .filter(item => 
-                        item.type === 'video' && 
-                        (item.url.includes('youtube.com') || item.url.includes('youtu.be')) && 
-                        videoInfo[item.url] && 
+                      .filter(item =>
+                        item.type === 'video' &&
+                        (item.url.includes('youtube.com') || item.url.includes('youtu.be')) &&
+                        videoInfo[item.url] &&
                         videoInfo[item.url].duration > 960
                       )
                       .map(item => (
@@ -332,11 +332,11 @@ export const MediaDownloader = () => {
                             </Badge>
                             <h3 className="text-lg font-semibold text-foreground">Time Range Selection</h3>
                           </div>
-                          
+
                           <div className="text-sm text-muted-foreground">
                             This video is longer than 16 minutes. You can select a specific time range to download.
                           </div>
-                          
+
                           {/* Quality Selector */}
                           <div className="space-y-3 p-3 bg-muted/20 rounded-lg border border-border/30 backdrop-blur-sm">
                             <label className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -363,7 +363,7 @@ export const MediaDownloader = () => {
                               </SelectContent>
                             </Select>
                           </div>
-                          
+
                           <TimeRangeSelector
                             videoDuration={videoInfo[item.url].duration}
                             videoTitle={videoInfo[item.url].title}
@@ -381,11 +381,11 @@ export const MediaDownloader = () => {
                                 ...prev,
                                 [item.url]: { start: startTime, end: endTime }
                               }));
-                              
+
                               // Set downloading state
                               setSegmentDownloading(prev => ({ ...prev, [item.url]: true }));
                               setSegmentProgress(prev => ({ ...prev, [item.url]: 0 }));
-                              
+
                               // Trigger the download with the selected time range
                               try {
                                 const quality = selectedQuality[item.url] || 'high';
@@ -398,7 +398,7 @@ export const MediaDownloader = () => {
                                 await DownloadService.downloadMedia(item, quality, (progress) => {
                                   setSegmentProgress(prev => ({ ...prev, [item.url]: progress }));
                                 }, startTime, endTime);
-                                
+
                                 toast({
                                   title: "Download Complete",
                                   description: `${item.filename} (${timeRangeText}) has been downloaded successfully`,
