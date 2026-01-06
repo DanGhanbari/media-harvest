@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import VideoConverterPage from "./pages/VideoConverter";
+import Anonymiser from "./pages/Anonymiser";
 import NotFound from "./pages/NotFound";
 
 import { Analytics } from "@vercel/analytics/react";
@@ -26,6 +27,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/convert" element={<VideoConverterPage />} />
+          <Route path="/anonymiser" element={<Anonymiser />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

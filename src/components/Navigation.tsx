@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Download, RefreshCw } from 'lucide-react';
+import { Download, RefreshCw, Shield } from 'lucide-react';
 
 
 export const Navigation = () => {
@@ -40,7 +40,17 @@ export const Navigation = () => {
               </Link>
             </Button>
 
-
+            <Button
+              variant={location.pathname === '/anonymiser' ? 'default' : 'ghost'}
+              asChild
+              size="sm"
+              className="px-2 md:px-3"
+            >
+              <Link to="/anonymiser" className="flex items-center">
+                <Shield className="h-4 w-4" />
+                <span className="hidden sm:inline">Anonymiser</span>
+              </Link>
+            </Button>
           </div>
         </div>
       </div>
