@@ -1939,6 +1939,7 @@ app.post('/api/download-video', async (req, res) => {
         '--ignore-errors', // Continue on errors for individual items
         '--write-info-json', // Get metadata for each item
         '--write-thumbnail', // Download thumbnails
+        '--recode-video', 'mp4', // FORCE conversion to MP4 if source is weird
         // DO NOT add --no-playlist for Instagram to allow carousel downloads
         '--yes-playlist' // Explicitly enable playlist/carousel extraction
       ];
@@ -1965,7 +1966,8 @@ app.post('/api/download-video', async (req, res) => {
         '--fragment-retries', '3',
         '--retry-sleep', 'linear=1::2',
         '--sleep-interval', '1',
-        '--max-sleep-interval', '5'
+        '--max-sleep-interval', '5',
+        '--recode-video', 'mp4' // FORCE conversion to MP4
       ];
 
       // Continue without authentication for Facebook
