@@ -1939,7 +1939,8 @@ app.post('/api/download-video', async (req, res) => {
         '--ignore-errors', // Continue on errors for individual items
         '--write-info-json', // Get metadata for each item
         '--write-thumbnail', // Download thumbnails
-        '--recode-video', 'mp4', // FORCE conversion to MP4 if source is weird
+        '--recode-video', 'mp4', // Ensure container is MP4
+        '--postprocessor-args', 'ffmpeg:-c:v libx264 -c:a aac', // FORCE H.264/AAC transcoding for compatibility
         // DO NOT add --no-playlist for Instagram to allow carousel downloads
         '--yes-playlist' // Explicitly enable playlist/carousel extraction
       ];
@@ -1967,7 +1968,8 @@ app.post('/api/download-video', async (req, res) => {
         '--retry-sleep', 'linear=1::2',
         '--sleep-interval', '1',
         '--max-sleep-interval', '5',
-        '--recode-video', 'mp4' // FORCE conversion to MP4
+        '--recode-video', 'mp4', // Ensure container is MP4
+        '--postprocessor-args', 'ffmpeg:-c:v libx264 -c:a aac' // FORCE H.264/AAC transcoding
       ];
 
       // Continue without authentication for Facebook
@@ -2043,7 +2045,9 @@ app.post('/api/download-video', async (req, res) => {
         '--no-check-certificate',
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         '--referer', url,
-        '--extract-flat', 'false'
+        '--extract-flat', 'false',
+        '--recode-video', 'mp4',
+        '--postprocessor-args', 'ffmpeg:-c:v libx264 -c:a aac' // FORCE H.264/AAC transcoding
       );
 
       // For direct video files, try to download directly
