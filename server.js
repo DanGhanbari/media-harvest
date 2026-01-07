@@ -1696,20 +1696,20 @@ function detectPlatform(url) {
 // Use separate video+audio for best quality and explicit height caps
 // UPDATED: Prefer H.264 (avc) for best compatibility with QuickTime/Finder/VLC
 const qualityFormats = {
-  'maximum': 'bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/best[vcodec^=avc]/bestvideo+bestaudio/best',
-  'high': 'bestvideo[height<=1080][vcodec^=avc]+bestaudio[ext=m4a]/best[height<=1080][vcodec^=avc]/bestvideo[height<=1080]+bestaudio/best',
-  'medium': 'bestvideo[height<=720][vcodec^=avc]+bestaudio[ext=m4a]/best[height<=720][vcodec^=avc]/bestvideo[height<=720]+bestaudio/best',
-  'low': 'bestvideo[height<=480][vcodec^=avc]+bestaudio[ext=m4a]/best[height<=480][vcodec^=avc]/bestvideo[height<=480]+bestaudio/best',
+  'maximum': 'bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/best[vcodec^=avc]/best[vcodec!*=vp9][vcodec!*=hevc]/best',
+  'high': 'bestvideo[height<=1080][vcodec^=avc]+bestaudio[ext=m4a]/best[height<=1080][vcodec^=avc]/best[height<=1080][vcodec!*=vp9][vcodec!*=hevc]/best',
+  'medium': 'bestvideo[height<=720][vcodec^=avc]+bestaudio[ext=m4a]/best[height<=720][vcodec^=avc]/best[height<=720][vcodec!*=vp9][vcodec!*=hevc]/best',
+  'low': 'bestvideo[height<=480][vcodec^=avc]+bestaudio[ext=m4a]/best[height<=480][vcodec^=avc]/best[height<=480][vcodec!*=vp9][vcodec!*=hevc]/best',
   'audio': 'bestaudio/best'
 }
 
 // Alternative format strategies for bypassing restrictions
 // Fall back to single-file best when separate streams aren’t available
 const alternativeFormats = {
-  'maximum': ['bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/best', 'best'],
-  'high': ['bestvideo[height<=1080][vcodec^=avc]+bestaudio[ext=m4a]/best', 'best[height<=1080]/best'],
-  'medium': ['bestvideo[height<=720][vcodec^=avc]+bestaudio[ext=m4a]/best', 'best[height<=720]/best'],
-  'low': ['bestvideo[height<=480][vcodec^=avc]+bestaudio[ext=m4a]/best', 'best[height<=480]/best'],
+  'maximum': ['bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/best[vcodec^=avc]', 'best[vcodec^=avc]', 'best[vcodec!*=vp9][vcodec!*=hevc]', 'best'],
+  'high': ['bestvideo[height<=1080][vcodec^=avc]+bestaudio[ext=m4a]/best[height<=1080][vcodec^=avc]', 'best[height<=1080][vcodec^=avc]', 'best[height<=1080][vcodec!*=vp9][vcodec!*=hevc]', 'best[height<=1080]'],
+  'medium': ['bestvideo[height<=720][vcodec^=avc]+bestaudio[ext=m4a]/best[height<=720][vcodec^=avc]', 'best[height<=720][vcodec^=avc]', 'best[height<=720][vcodec!*=vp9][vcodec!*=hevc]', 'best[height<=720]'],
+  'low': ['bestvideo[height<=480][vcodec^=avc]+bestaudio[ext=m4a]/best[height<=480][vcodec^=avc]', 'best[height<=480][vcodec^=avc]', 'best[height<=480][vcodec!*=vp9][vcodec!*=hevc]', 'best[height<=480]'],
   'audio': ['bestaudio', 'best']
 }
 
