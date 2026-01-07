@@ -2753,9 +2753,15 @@ app.post('/api/download-video', async (req, res) => {
               return a.localeCompare(b);
             });
 
-            // If multiple files (carousel post), create a zip archive
-            // Also check for images in case of Instagram mixed content
-            if (files.length > 1 && platform === 'instagram') {
+            // Filter out thumbnails for the decision logic (Video + Image only)
+            const mediaFiles = files.filter(f =>
+              /\.(mp4|mkv|webm|avi|mov|flv|m4v|jpg|jpeg|png|webp|gif)$/i.test(f) &&
+              !f.includes('.thumb.') && !f.includes('.jpg_')
+            );
+
+            // If multiple MEDIA files (Carousel), create a zip.
+            // If single media file (Reel), serve directly.
+            if (mediaFiles.length > 1 && platform === 'instagram') {
 
               const zipFilename = `${filename || 'instagram_carousel'}.zip`;
               res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
@@ -2823,8 +2829,10 @@ app.post('/api/download-video', async (req, res) => {
               });
 
             } else {
-              // Single file - send as normal
-              const downloadedFile = path.join(tempDir, sortedFiles[0]);
+              // Single file - serve directly
+              // Validates against mediaFiles to ensure we don't serve a thumbnail by accident
+              const targetFile = (mediaFiles && mediaFiles.length > 0) ? mediaFiles[0] : sortedFiles[0];
+              const downloadedFile = path.join(tempDir, targetFile);
 
               // Check if file exists, if not it might be a trimmed file issue
               if (!fs.existsSync(downloadedFile)) {
@@ -2838,7 +2846,7 @@ app.post('/api/download-video', async (req, res) => {
               console.log('📤 Serving file:', downloadedFile, 'Size:', stats.size, 'bytes');
 
               // Send file as download
-              const finalFilename = filename || sortedFiles[0];
+              const finalFilename = filename || targetFile;
               // Properly encode filename for Content-Disposition header - sanitize all non-ASCII and special characters
               const sanitizedFilename = finalFilename.replace(/[^\w\s.-]/g, '_').replace(/\s+/g, '_');
               const encodedFilename = encodeURIComponent(sanitizedFilename).replace(/'/g, '%27');
